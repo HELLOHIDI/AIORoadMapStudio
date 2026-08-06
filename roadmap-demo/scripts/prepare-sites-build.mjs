@@ -10,6 +10,7 @@ const worker = path.join(root, "worker", "index.js");
 const hosting = path.join(root, ".openai", "hosting.json");
 const migrations = path.join(root, "drizzle");
 const catalogOptions = path.join(root, "catalog-options.js");
+const catalogImport = 'import { INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";';
 
 for (const file of [index, worker, hosting, migrations, catalogOptions]) {
   if (!existsSync(file)) throw new Error("Missing Sites build input: " + file);
@@ -19,9 +20,11 @@ mkdirSync(path.join(dist, "server"), { recursive: true });
 mkdirSync(path.join(dist, ".openai"), { recursive: true });
 mkdirSync(path.join(dist, ".openai", "drizzle"), { recursive: true });
 rmSync(path.join(dist, "catalog-options.js"), { force: true });
-const workerSource = readFileSync(worker, "utf8").replace("../catalog-options.js", "./catalog-options.js");
+rmSync(path.join(dist, "server", "catalog-options.js"), { force: true });
+const workerTemplate = readFileSync(worker, "utf8");
+if (!workerTemplate.includes(catalogImport)) throw new Error("Missing catalog options import in Worker source");
+const workerSource = workerTemplate.replace(catalogImport, readFileSync(catalogOptions, "utf8"));
 writeFileSync(path.join(dist, "server", "index.js"), workerSource);
-copyFileSync(catalogOptions, path.join(dist, "server", "catalog-options.js"));
 copyFileSync(hosting, path.join(dist, ".openai", "hosting.json"));
 for (const migration of readdirSync(migrations).filter((name) => name.endsWith(".sql"))) {
   copyFileSync(path.join(migrations, migration), path.join(dist, ".openai", "drizzle", migration));
