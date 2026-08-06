@@ -19,7 +19,14 @@ for (const file of [index, worker, hosting, migrations, catalogOptions]) {
 mkdirSync(path.join(dist, "server"), { recursive: true });
 mkdirSync(path.join(dist, ".openai"), { recursive: true });
 rmSync(path.join(dist, ".openai", "drizzle"), { recursive: true, force: true });
-mkdirSync(path.join(dist, ".openai", "drizzle"), { recursive: true });
+mkdirSync(path.join(dist, ".openai", "drizzle", "meta"), { recursive: true });
+for (const migration of readdirSync(migrations).filter((name) => name.endsWith(".sql"))) {
+  copyFileSync(path.join(migrations, migration), path.join(dist, ".openai", "drizzle", migration));
+}
+copyFileSync(
+  path.join(migrations, "meta", "_journal.json"),
+  path.join(dist, ".openai", "drizzle", "meta", "_journal.json"),
+);
 rmSync(path.join(dist, "catalog-options.js"), { force: true });
 rmSync(path.join(dist, "server", "catalog-options.js"), { force: true });
 const workerTemplate = readFileSync(worker, "utf8");
@@ -30,8 +37,5 @@ const workerSource = workerTemplate
   .replace("export function validateCatalogProgram", "function validateCatalogProgram");
 writeFileSync(path.join(dist, "server", "index.js"), workerSource);
 copyFileSync(hosting, path.join(dist, ".openai", "hosting.json"));
-for (const migration of readdirSync(migrations).filter((name) => name.endsWith(".sql"))) {
-  copyFileSync(path.join(migrations, migration), path.join(dist, ".openai", "drizzle", migration));
-}
 
 console.log("Prepared Sites build: worker, hosting config, and D1 migrations");
