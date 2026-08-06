@@ -11,9 +11,11 @@ CREATE TABLE IF NOT EXISTS catalog_programs (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS idx_catalog_programs_updated_at
 ON catalog_programs(updated_at DESC, id DESC);
+--> statement-breakpoint
 
 INSERT OR IGNORE INTO catalog_programs (
   id, category, title, link, amount_krw, start_month, end_month,
