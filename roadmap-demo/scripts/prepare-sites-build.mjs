@@ -23,7 +23,10 @@ rmSync(path.join(dist, "catalog-options.js"), { force: true });
 rmSync(path.join(dist, "server", "catalog-options.js"), { force: true });
 const workerTemplate = readFileSync(worker, "utf8");
 if (!workerTemplate.includes(catalogImport)) throw new Error("Missing catalog options import in Worker source");
-const workerSource = workerTemplate.replace(catalogImport, readFileSync(catalogOptions, "utf8"));
+const catalogOptionsSource = readFileSync(catalogOptions, "utf8").replaceAll("export const ", "const ");
+const workerSource = workerTemplate
+  .replace(catalogImport, catalogOptionsSource)
+  .replace("export function validateCatalogProgram", "function validateCatalogProgram");
 writeFileSync(path.join(dist, "server", "index.js"), workerSource);
 copyFileSync(hosting, path.join(dist, ".openai", "hosting.json"));
 for (const migration of readdirSync(migrations).filter((name) => name.endsWith(".sql"))) {
