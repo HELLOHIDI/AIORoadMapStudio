@@ -34,7 +34,8 @@ if (!workerTemplate.includes(catalogImport)) throw new Error("Missing catalog op
 const catalogOptionsSource = readFileSync(catalogOptions, "utf8").replaceAll("export const ", "const ");
 const workerSource = workerTemplate
   .replace(catalogImport, catalogOptionsSource)
-  .replace("export function validateCatalogProgram", "function validateCatalogProgram");
+  .replace("export function validateCatalogProgram", "function validateCatalogProgram")
+  .replace("export function validateRoadmapDocumentForStorage", "function validateRoadmapDocumentForStorage");
 writeFileSync(path.join(dist, "server", "index.js"), workerSource);
 copyFileSync(hosting, path.join(dist, ".openai", "hosting.json"));
 

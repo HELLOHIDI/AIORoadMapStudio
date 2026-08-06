@@ -35,6 +35,22 @@ test("renders the roadmap before its editing controls", () => {
   assert.ok(app.indexOf('<main className="preview-stage"') < app.indexOf('<section className="authoring-panel no-print"'));
 });
 
+test("starts in the shared saved-roadmap library and requires explicit saves", () => {
+  assert.ok(app.includes('useState("library")'));
+  assert.ok(app.includes('fetch("/api/roadmaps?limit=50&offset=0"'));
+  assert.ok(app.includes('method: editing ? "PUT" : "POST"'));
+  assert.ok(app.includes('method: "DELETE"'));
+  assert.ok(app.includes('window.addEventListener("beforeunload"'));
+  assert.ok(app.includes("isDirty || catalogFormDirty"));
+  assert.ok(app.includes('className="catalog-form__fields" disabled={state.status === "saving"}'));
+  assert.ok(app.includes('disabled={roadmapMutation.status === "saving" || catalogMutation.status === "saving"}>로드맵 목록'));
+  assert.ok(app.includes("setRoadmapRefresh((current) => current + 1)"));
+  assert.ok(app.includes("모든 방문자가 보고 수정하거나 삭제할 수 있습니다"));
+  assert.ok(app.includes("로드맵 저장"));
+  assert.ok(!app.includes("localStorage"));
+  assert.ok(!app.includes("sessionStorage"));
+});
+
 test("keeps category tabs and direct roadmap moves outside print", () => {
   assert.ok(app.includes('className="category-tabs"'));
   assert.ok(app.includes('const activePrograms = document.programs.filter'));

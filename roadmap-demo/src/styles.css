@@ -80,6 +80,11 @@ button {
   gap: 2px;
 }
 
+.preview-toolbar .preview-toolbar__actions {
+  display: flex;
+  gap: 8px;
+}
+
 .preview-toolbar strong {
   color: #071951;
   font-size: 13px;
@@ -193,6 +198,7 @@ button {
 }
 
 .authoring-panel h2,
+.catalog-panel h1,
 .catalog-panel h2,
 .catalog-panel h3 {
   margin: 0;
@@ -205,6 +211,7 @@ button {
 }
 
 .authoring-panel h2:focus,
+.catalog-panel h1:focus,
 .catalog-panel h2:focus {
   outline: 0;
 }
@@ -334,7 +341,9 @@ button {
   border-bottom: 1px solid #e3e6ec;
 }
 
+.catalog-heading h1,
 .catalog-heading h2 {
+  margin: 0;
   font-size: 18px;
 }
 
@@ -395,6 +404,13 @@ button {
   align-items: end;
   gap: 8px;
   margin-top: 16px;
+}
+
+.catalog-form__fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
 .catalog-toolbar label {
@@ -458,6 +474,16 @@ button {
   background: #fff1f1;
 }
 
+.catalog-notice--warning {
+  color: #714d12;
+  background: #fff7df;
+}
+
+.roadmap-save-status {
+  width: min(1120px, calc(100% - 32px));
+  margin: 8px auto 0;
+}
+
 .catalog-notice button {
   flex: none;
   border: 1px solid currentColor;
@@ -507,7 +533,9 @@ button {
   font-weight: 700;
 }
 
+.catalog-row__title h2,
 .catalog-row__title h3 {
+  margin: 0;
   font-size: 15px;
   line-height: 1.4;
 }
@@ -851,8 +879,18 @@ button {
   .workspace-switch,
   .print-profile,
   .authoring-panel,
-  .catalog-panel {
+  .catalog-panel,
+  .roadmap-save-status {
     width: calc(100% - 20px);
+  }
+
+  .preview-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .preview-toolbar .preview-toolbar__actions {
+    flex-wrap: wrap;
   }
 
   .catalog-heading,

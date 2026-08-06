@@ -4,8 +4,8 @@
 
 - Status: Active
 - Last refreshed: 2026-08-06
-- Primary product surfaces: desktop roadmap authoring, shared support-program catalog, A4 landscape roadmap preview and print output
-- Evidence reviewed: `AGENTS.md`, `src/App.jsx`, `src/styles.css`, `src/roadmap-policy.js`, `src/pdf-preflight.js`, `public/assets/anp-consulting-logo.png`, the running 1440x1024 authoring screen, `.omx/specs/deep-interview-business-registration.md`, `업종별_지역별_개별속성_중복제거.xlsx`
+- Primary product surfaces: shared saved-roadmap library, desktop roadmap authoring, shared support-program catalog, A4 landscape roadmap preview and print output
+- Evidence reviewed: `AGENTS.md`, `src/App.jsx`, `src/styles.css`, `src/roadmap-policy.js`, `src/pdf-preflight.js`, `public/assets/anp-consulting-logo.png`, the running 1440x1024 authoring screen, `.omx/specs/deep-interview-business-registration.md`, `.omx/specs/deep-interview-roadmap-saving.md`, `업종별_지역별_개별속성_중복제거.xlsx`
 - Governance: this file defines product and UI/UX policy. Generated mockups are exploratory until the user explicitly approves one; they do not override this file.
 
 ## Brand
@@ -17,6 +17,7 @@
 ## Product goals
 
 - Goals:
+  - Let visitors open, create, explicitly save, and permanently delete shared roadmap drafts.
   - Let users reuse a centrally managed catalog of support programs.
   - Make selecting a catalog program faster than retyping a roadmap row.
   - Keep catalog masters independent from client-specific roadmap copies.
@@ -27,6 +28,7 @@
   - Site-wide navigation redesign or a new multi-page information architecture.
   - Redesigning the A4 landscape document.
   - Treating exploratory generated images as implementation requirements.
+  - Autosave, ownership, history, duplication, trash, search, or sorting controls for saved roadmaps.
 - Success signals:
   - Users can find a saved program, add it to the roadmap, and see the independent copy with minimal context switching.
   - A growing catalog remains usable without a long combined page, modal, or drawer.
@@ -45,8 +47,10 @@
 
 ## Information architecture
 
-- Primary navigation: no new global navigation or route for the MVP.
-- Core routes/screens: keep the existing single product screen.
+- Primary navigation: the initial saved-roadmap library leads to the existing editor; no client-side router is required.
+- Core screens:
+  - `저장된 로드맵`: shared roadmap list, create, open, and permanent delete.
+  - Editor: the existing roadmap/catalog working modes plus explicit roadmap save and return-to-list actions.
 - Working modes:
   - `로드맵 편집`: client name, selected program rows, validation, A4 preview, and PDF print.
   - `사업 카탈로그`: shared master list, master CRUD, and copy-to-roadmap action.
@@ -61,6 +65,7 @@
 ## Design principles
 
 - Preserve the document contract: catalog UI belongs to the authoring surface and must never appear in print.
+- Protect unsaved work: warn before leaving the editor when the in-memory document differs from the last successful save.
 - Optimize the repeated job: the saved list is the default; `로드맵에 추가` is the primary catalog action.
 - Scale by disclosure: keep long lists compact and reveal extended descriptions only when needed.
 - Make data boundaries visible: distinguish `사업 카탈로그` masters from `로드맵 사업` copies in labels and feedback.
@@ -84,6 +89,7 @@
   - Policy/preflight error presentation.
   - A4 preview and print-only styling.
 - New/changed components:
+  - `SavedRoadmapLibrary` reusing the existing list, notice, and action styles.
   - `WorkspaceModeSwitch` for `로드맵 편집` / `사업 카탈로그`.
   - `CatalogToolbar` with a minimal search input and secondary `새 사업 등록` action.
   - `CatalogList` and `CatalogRow` using lightweight row separation.
@@ -102,6 +108,7 @@
 
 - Target standard: WCAG 2.1 AA for the authoring interface.
 - Keyboard/focus behavior:
+  - Opening either screen moves focus to its heading.
   - Mode controls, search, row actions, forms, and retry actions must be keyboard reachable.
   - Switching modes moves focus to the new mode heading or first meaningful control.
   - Focus must remain visible and must not enter hidden-mode content.
@@ -125,6 +132,7 @@
 ## Interaction states
 
 - Loading: show a compact catalog loading state only inside catalog mode; keep the active roadmap state intact.
+- Saved-roadmap loading/errors remain in the library; failed open/save/delete operations must not discard the in-memory document.
 - Empty: explain that no saved programs exist and offer `새 사업 등록`.
 - Error: preserve the last usable catalog data when possible, explain the failed operation, and offer a focused retry.
 - Success: confirm the named program was added and offer `로드맵 편집으로 이동`.
@@ -172,6 +180,14 @@
 - Concurrency: use normal request-level last-write-wins semantics for this unauthenticated MVP. Return explicit not-found, validation, and server errors; do not add conflict-resolution UI.
 - Initialization: keep the schema and one idempotent KIMST/SCCEI seed migration in the repository. Do not create production resources or credentials from application code.
 - Failure isolation: failed catalog reads or writes must leave the current in-memory roadmap document untouched.
+
+## Saved roadmap data and API policy
+
+- Storage: one D1 `roadmaps` table stores the full roadmap document as JSON plus list metadata. Do not add browser storage or another persistence service.
+- API surface: bounded `GET /api/roadmaps`, plus `POST /api/roadmaps`, and `GET`/`PUT`/`DELETE /api/roadmaps/:id`.
+- Draft semantics: structural validation and size limits apply at the API boundary, but incomplete titles or invalid PDF periods may still be saved. Existing PDF preflight remains the output gate.
+- Access/concurrency: all visitors can read, update, and permanently delete; last write wins. Show this risk in the library and revisit authentication before production exposure.
+- Save semantics: new roadmaps exist only in memory until the user chooses `로드맵 저장`; no autosave.
 
 ## Open questions
 

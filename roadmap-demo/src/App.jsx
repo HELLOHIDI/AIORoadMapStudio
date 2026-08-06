@@ -5,20 +5,24 @@ import { catalogPayload, copyCatalogProgram, EMPTY_CATALOG_PROGRAM, parseCatalog
 import { runPdfPreflight } from "./pdf-preflight.js";
 import { detectPdfRuntime, PDF_RUNTIME } from "./pdf-runtime.js";
 import { buildRoadmapLayout, moveProgramToLane, ROADMAP_CATEGORIES } from "./roadmap-policy.js";
-import { sampleRoadmap } from "./sample-roadmap.js";
 
 const months = Array.from({ length: 12 }, (_, index) => `${index + 1}월`);
 const categoryLabel = Object.fromEntries(ROADMAP_CATEGORIES.map(({ key, label }) => [key, label]));
+const EMPTY_ROADMAP = Object.freeze({ clientName: "", programs: Object.freeze([]) });
 
 async function readApiJson(response) {
   if (!response.headers.get("content-type")?.includes("application/json")) {
-    throw new Error("사업 카탈로그 서버 응답 형식이 올바르지 않습니다.");
+    throw new Error("서버 응답 형식이 올바르지 않습니다.");
   }
   try {
     return await response.json();
   } catch {
-    throw new Error("사업 카탈로그 서버 응답을 읽지 못했습니다.");
+    throw new Error("서버 응답을 읽지 못했습니다.");
   }
+}
+
+function formatSavedAt(value) {
+  return new Date(value).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" });
 }
 
 function RoadmapEvent({ item, dragging, onDragStart, onDragEnd, onMove }) {
@@ -102,11 +106,14 @@ function TagPicker({ label, options, value = [], onChange }) {
   );
 }
 
-function CatalogForm({ form, state, onChange, onCancel, onSubmit }) {
+function CatalogForm({ form, state, onChange, onCancel, onDirty, onSubmit }) {
   const [importText, setImportText] = useState("");
   const [importErrors, setImportErrors] = useState([]);
   const values = form.values;
-  const change = (name, value) => onChange({ ...values, [name]: value });
+  const change = (name, value) => {
+    onDirty();
+    onChange({ ...values, [name]: value });
+  };
   const invalid = (name) => Boolean(state.fields?.[name]);
   const submit = (event) => {
     if (form.mode === "edit") return onSubmit(event);
@@ -122,12 +129,13 @@ function CatalogForm({ form, state, onChange, onCancel, onSubmit }) {
 
   return (
     <form className="catalog-form" onSubmit={submit}>
+      <fieldset className="catalog-form__fields" disabled={state.status === "saving"}>
       <div className="catalog-form__heading">
         <div>
           <h3>{form.mode === "create" ? "새 사업 등록" : "등록 사업 편집"}</h3>
           <p>저장한 내용은 사이트의 모든 방문자에게 공유됩니다.</p>
         </div>
-        <button type="button" className="button-secondary" onClick={onCancel}>목록으로</button>
+        <button type="button" className="button-secondary" onClick={onCancel} disabled={state.status === "saving"}>목록으로</button>
       </div>
 
       {form.mode === "edit" && state.error ? <p className="catalog-notice catalog-notice--error" role="alert">{state.error}</p> : null}
@@ -142,6 +150,7 @@ function CatalogForm({ form, state, onChange, onCancel, onSubmit }) {
             rows="10"
             value={importText}
             onChange={(event) => {
+              onDirty();
               setImportText(event.target.value);
               if (importErrors.length) setImportErrors([]);
             }}
@@ -210,17 +219,26 @@ function CatalogForm({ form, state, onChange, onCancel, onSubmit }) {
       </div> : null}
 
       <div className="catalog-form__actions">
-        <button type="button" className="button-secondary" onClick={onCancel}>취소</button>
+        <button type="button" className="button-secondary" onClick={onCancel} disabled={state.status === "saving"}>취소</button>
         <button type="submit" className="button-primary" disabled={state.status === "saving"}>
           {state.status === "saving" ? "저장 중" : form.mode === "create" ? "사업 등록" : "변경사항 저장"}
         </button>
       </div>
+      </fieldset>
     </form>
   );
 }
 
 export function App() {
-  const [document, setDocument] = useState(sampleRoadmap);
+  const [screen, setScreen] = useState("library");
+  const [document, setDocument] = useState(EMPTY_ROADMAP);
+  const [roadmapId, setRoadmapId] = useState(null);
+  const [savedSignature, setSavedSignature] = useState(JSON.stringify(EMPTY_ROADMAP));
+  const [roadmaps, setRoadmaps] = useState({ status: "idle", items: [], error: "" });
+  const [roadmapRefresh, setRoadmapRefresh] = useState(0);
+  const [roadmapMutation, setRoadmapMutation] = useState({ status: "idle", error: "", message: "" });
+  const [openingRoadmapId, setOpeningRoadmapId] = useState(null);
+  const [deletingRoadmapId, setDeletingRoadmapId] = useState(null);
   const [pdfState, setPdfState] = useState({ status: "editing", errors: [] });
   const [mode, setMode] = useState("roadmap");
   const [catalog, setCatalog] = useState({ status: "idle", items: [], total: 0, limit: 50, offset: 0, error: "" });
@@ -230,35 +248,68 @@ export function App() {
   const [catalogOffset, setCatalogOffset] = useState(0);
   const [catalogRefresh, setCatalogRefresh] = useState(0);
   const [catalogForm, setCatalogForm] = useState(null);
+  const [catalogFormDirty, setCatalogFormDirty] = useState(false);
   const [catalogMutation, setCatalogMutation] = useState({ status: "idle", error: "", fields: {} });
   const [catalogNotice, setCatalogNotice] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [activeCategory, setActiveCategory] = useState(ROADMAP_CATEGORIES[0].key);
   const [draggingProgramId, setDraggingProgramId] = useState(null);
   const [layoutNotice, setLayoutNotice] = useState("");
+  const libraryHeading = useRef(null);
   const roadmapHeading = useRef(null);
   const catalogHeading = useRef(null);
   const moveFocus = useRef(false);
   const layout = useMemo(() => buildRoadmapLayout(document), [document]);
+  const documentSignature = useMemo(() => JSON.stringify(document), [document]);
+  const isDirty = screen === "editor" && documentSignature !== savedSignature;
+  const hasUnsavedWork = isDirty || catalogFormDirty;
   const currentRuntime = useMemo(() => detectPdfRuntime(), []);
 
   useEffect(() => {
+    if (screen !== "editor") return undefined;
     let current = true;
     setPdfState({ status: "preflighting", errors: [] });
     runPdfPreflight({ roadmapDocument: document }).then((result) => {
       if (current) setPdfState({ status: result.ok ? "ready" : "blocked", errors: result.errors });
     });
     return () => { current = false; };
-  }, [document]);
+  }, [document, screen]);
+
+  useEffect(() => {
+    if (screen !== "library") return undefined;
+    const controller = new AbortController();
+    setRoadmaps((current) => ({ ...current, status: current.items.length ? "refreshing" : "loading", error: "" }));
+    fetch("/api/roadmaps?limit=50&offset=0", { signal: controller.signal, headers: { accept: "application/json" } })
+      .then(async (response) => {
+        const data = await readApiJson(response);
+        if (!response.ok) throw new Error(data.error || "로드맵 목록을 불러오지 못했습니다.");
+        return data;
+      })
+      .then((data) => setRoadmaps({ status: "ready", items: data.items, error: "" }))
+      .catch((error) => {
+        if (error.name !== "AbortError") setRoadmaps((current) => ({ ...current, status: "error", error: error.message }));
+      });
+    return () => controller.abort();
+  }, [screen, roadmapRefresh]);
+
+  useEffect(() => {
+    if (!hasUnsavedWork) return undefined;
+    const warnBeforeLeave = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeave);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeave);
+  }, [hasUnsavedWork]);
 
   useEffect(() => {
     if (!moveFocus.current) return;
     moveFocus.current = false;
-    (mode === "roadmap" ? roadmapHeading : catalogHeading).current?.focus();
-  }, [mode]);
+    (screen === "library" ? libraryHeading : mode === "roadmap" ? roadmapHeading : catalogHeading).current?.focus();
+  }, [mode, screen]);
 
   useEffect(() => {
-    if (mode !== "catalog") return undefined;
+    if (screen !== "editor" || mode !== "catalog") return undefined;
     const controller = new AbortController();
     setCatalog((current) => ({ ...current, status: current.items.length ? "refreshing" : "loading", error: "" }));
 
@@ -277,10 +328,100 @@ export function App() {
       });
 
     return () => controller.abort();
-  }, [mode, catalogQuery, catalogCategory, catalogOffset, catalogRefresh]);
+  }, [screen, mode, catalogQuery, catalogCategory, catalogOffset, catalogRefresh]);
+
+  const startNewRoadmap = () => {
+    const blank = { clientName: "", programs: [] };
+    setDocument(blank);
+    setRoadmapId(null);
+    setSavedSignature(JSON.stringify(blank));
+    setRoadmapMutation({ status: "idle", error: "", message: "" });
+    setCatalogForm(null);
+    setCatalogFormDirty(false);
+    setMode("roadmap");
+    moveFocus.current = true;
+    setScreen("editor");
+  };
+
+  const openRoadmap = async (item) => {
+    setOpeningRoadmapId(item.id);
+    setRoadmaps((current) => ({ ...current, error: "" }));
+    try {
+      const response = await fetch(`/api/roadmaps/${encodeURIComponent(item.id)}`, { headers: { accept: "application/json" } });
+      const data = await readApiJson(response);
+      if (!response.ok) throw new Error(data.error || "로드맵을 불러오지 못했습니다.");
+      setDocument(data.item.document);
+      setRoadmapId(data.item.id);
+      setSavedSignature(JSON.stringify(data.item.document));
+      setRoadmapMutation({ status: "idle", error: "", message: "" });
+      setCatalogForm(null);
+      setCatalogFormDirty(false);
+      setMode("roadmap");
+      moveFocus.current = true;
+      setScreen("editor");
+    } catch (error) {
+      setRoadmaps((current) => ({ ...current, status: "error", error: error.message }));
+    } finally {
+      setOpeningRoadmapId(null);
+    }
+  };
+
+  const saveRoadmap = async () => {
+    const snapshot = document;
+    const editing = Boolean(roadmapId);
+    setRoadmapMutation({ status: "saving", error: "", message: "" });
+    try {
+      const response = await fetch(editing ? `/api/roadmaps/${encodeURIComponent(roadmapId)}` : "/api/roadmaps", {
+        method: editing ? "PUT" : "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify(snapshot),
+      });
+      const data = await readApiJson(response);
+      if (!response.ok) throw new Error(data.error || "로드맵을 저장하지 못했습니다.");
+      setRoadmapId(data.item.id);
+      setSavedSignature(JSON.stringify(snapshot));
+      setRoadmapMutation({ status: "idle", error: "", message: `“${snapshot.clientName || "이름 없는 로드맵"}”을 저장했습니다.` });
+    } catch (error) {
+      setRoadmapMutation({ status: "error", error: error.message || "네트워크 연결을 확인하고 다시 시도해 주세요.", message: "" });
+    }
+  };
+
+  const showRoadmapLibrary = () => {
+    if (roadmapMutation.status === "saving" || catalogMutation.status === "saving") return;
+    if (hasUnsavedWork && !window.confirm("저장하지 않은 변경사항이 있습니다. 로드맵 목록으로 이동할까요?")) return;
+    setCatalogForm(null);
+    setCatalogFormDirty(false);
+    setRoadmapRefresh((current) => current + 1);
+    moveFocus.current = true;
+    setScreen("library");
+  };
+
+  const deleteSavedRoadmap = async (item) => {
+    const title = item.clientName || "이름 없는 로드맵";
+    if (!window.confirm(`“${title}”을 영구 삭제할까요? 이 작업은 되돌릴 수 없습니다.`)) return;
+    setDeletingRoadmapId(item.id);
+    setRoadmaps((current) => ({ ...current, error: "" }));
+    try {
+      const response = await fetch(`/api/roadmaps/${encodeURIComponent(item.id)}`, { method: "DELETE", headers: { accept: "application/json" } });
+      const data = await readApiJson(response);
+      if (!response.ok) throw new Error(data.error || "로드맵을 삭제하지 못했습니다.");
+      setRoadmaps((current) => ({ ...current, items: current.items.filter((roadmap) => roadmap.id !== item.id) }));
+      setRoadmapRefresh((current) => current + 1);
+    } catch (error) {
+      setRoadmaps((current) => ({ ...current, status: "error", error: error.message }));
+    } finally {
+      setDeletingRoadmapId(null);
+    }
+  };
 
   const switchMode = (nextMode) => {
     if (nextMode === mode) return;
+    if (catalogMutation.status === "saving") return;
+    if (mode === "catalog" && catalogFormDirty) {
+      if (!window.confirm("저장하지 않은 사업 카탈로그 변경사항이 있습니다. 로드맵 편집으로 이동할까요?")) return;
+      setCatalogForm(null);
+      setCatalogFormDirty(false);
+    }
     moveFocus.current = true;
     setMode(nextMode);
   };
@@ -340,6 +481,7 @@ export function App() {
   const openCatalogForm = (program = null) => {
     setCatalogMutation({ status: "idle", error: "", fields: {} });
     setCatalogNotice(null);
+    setCatalogFormDirty(false);
     setCatalogForm(program ? {
       mode: "edit",
       id: program.id,
@@ -363,6 +505,7 @@ export function App() {
         return;
       }
       setCatalogForm(null);
+      setCatalogFormDirty(false);
       setCatalogMutation({ status: "idle", error: "", fields: {} });
       setCatalogNotice({ tone: "success", message: `“${data.item.title}”을 ${editing ? "수정" : "등록"}했습니다.` });
       if (!editing) {
@@ -402,6 +545,63 @@ export function App() {
     setPdfState({ status: "ready", errors: [] });
   };
 
+  if (screen === "library") {
+    const listBusy = openingRoadmapId !== null || deletingRoadmapId !== null;
+    return (
+      <main className="catalog-panel no-print" aria-labelledby="roadmap-library-heading">
+        <div className="catalog-heading">
+          <div>
+            <h1 id="roadmap-library-heading" ref={libraryHeading} tabIndex="-1">저장된 로드맵</h1>
+            <p>기존 로드맵을 열거나 새 로드맵을 만듭니다.</p>
+          </div>
+          <button type="button" className="button-primary" onClick={startNewRoadmap} disabled={listBusy}>새 로드맵 만들기</button>
+        </div>
+
+        <p className="catalog-notice catalog-notice--warning" role="note">
+          이 목록과 로드맵은 모든 방문자가 보고 수정하거나 삭제할 수 있습니다. 민감한 고객 정보는 저장하지 마세요.
+        </p>
+
+        {roadmaps.error ? (
+          <div className="catalog-notice catalog-notice--error" role="alert">
+            <span>{roadmaps.error}</span>
+            <button type="button" onClick={() => setRoadmapRefresh((current) => current + 1)}>다시 시도</button>
+          </div>
+        ) : null}
+
+        <div className="catalog-list" aria-busy={roadmaps.status === "loading" || roadmaps.status === "refreshing"}>
+          {roadmaps.status === "loading" ? <p className="catalog-state" role="status">저장된 로드맵을 불러오는 중입니다.</p> : null}
+          {roadmaps.status !== "loading" && !roadmaps.items.length && !roadmaps.error ? (
+            <div className="catalog-state">
+              <strong>아직 저장된 로드맵이 없습니다.</strong>
+              <span>새 로드맵을 만든 뒤 편집 화면에서 저장해 주세요.</span>
+            </div>
+          ) : null}
+          {roadmaps.items.map((item) => {
+            const title = item.clientName || "이름 없는 로드맵";
+            return (
+              <article className="catalog-row" key={item.id}>
+                <div className="catalog-row__main">
+                  <div className="catalog-row__title"><h2>{title}</h2></div>
+                  <dl className="catalog-row__meta">
+                    <div><dt>마지막 저장</dt><dd>{formatSavedAt(item.updatedAt)}</dd></div>
+                  </dl>
+                </div>
+                <div className="catalog-row__actions">
+                  <button type="button" className="button-primary" onClick={() => openRoadmap(item)} disabled={listBusy}>
+                    {openingRoadmapId === item.id ? "여는 중" : "열기"}
+                  </button>
+                  <button type="button" className="button-danger" onClick={() => deleteSavedRoadmap(item)} disabled={listBusy} aria-label={`${title} 영구 삭제`}>
+                    {deletingRoadmapId === item.id ? "삭제 중" : "삭제"}
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </main>
+    );
+  }
+
   const printLabel = pdfState.status === "preflighting" ? "PDF 검증 중" : "PDF로 인쇄";
   const preflightOnlyErrors = pdfState.errors.filter((item) => !layout.errors.some((layoutError) => (
     layoutError.code === item.code && layoutError.path === item.path
@@ -418,13 +618,24 @@ export function App() {
           <strong>ANP 연간 로드맵 제작</strong>
           <span>{mode === "roadmap" ? "A4 가로 · 1페이지 PDF 기준" : "공유 사업 카탈로그 관리"}</span>
         </div>
-        {mode === "roadmap" ? <button type="button" onClick={handlePrint} disabled={pdfState.status !== "ready"}>{printLabel}</button> : null}
+        <div className="preview-toolbar__actions">
+          <button type="button" onClick={showRoadmapLibrary} disabled={roadmapMutation.status === "saving" || catalogMutation.status === "saving"}>로드맵 목록</button>
+          <button type="button" onClick={saveRoadmap} disabled={roadmapMutation.status === "saving"}>
+            {roadmapMutation.status === "saving" ? "저장 중" : "로드맵 저장"}
+          </button>
+          {mode === "roadmap" ? <button type="button" onClick={handlePrint} disabled={pdfState.status !== "ready"}>{printLabel}</button> : null}
+        </div>
       </div>
 
       <nav className="workspace-switch no-print" aria-label="작업 화면">
-        <button type="button" aria-pressed={mode === "roadmap"} onClick={() => switchMode("roadmap")}>로드맵 편집</button>
+        <button type="button" aria-pressed={mode === "roadmap"} onClick={() => switchMode("roadmap")} disabled={catalogMutation.status === "saving"}>로드맵 편집</button>
         <button type="button" aria-pressed={mode === "catalog"} onClick={() => switchMode("catalog")}>사업 카탈로그</button>
       </nav>
+
+      {roadmapMutation.error ? <p className="roadmap-save-status catalog-notice catalog-notice--error no-print" role="alert">{roadmapMutation.error}</p>
+        : roadmapMutation.status === "saving" ? <p className="roadmap-save-status catalog-notice no-print" role="status">로드맵을 저장하는 중입니다.</p>
+          : hasUnsavedWork ? <p className="roadmap-save-status catalog-notice catalog-notice--warning no-print" role="status">저장되지 않은 변경사항이 있습니다.</p>
+            : roadmapMutation.message ? <p className="roadmap-save-status catalog-notice catalog-notice--success no-print" role="status">{roadmapMutation.message}</p> : null}
 
       {mode === "roadmap" ? (
         <>
@@ -554,7 +765,11 @@ export function App() {
               form={catalogForm}
               state={catalogMutation}
               onChange={(values) => setCatalogForm((current) => ({ ...current, values }))}
-              onCancel={() => setCatalogForm(null)}
+              onCancel={() => {
+                setCatalogForm(null);
+                setCatalogFormDirty(false);
+              }}
+              onDirty={() => setCatalogFormDirty(true)}
               onSubmit={saveCatalog}
             />
           ) : (
