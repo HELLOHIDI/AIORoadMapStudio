@@ -4,7 +4,7 @@ import { formatAmount } from "./amount.js";
 import { catalogPayload, copyCatalogProgram, EMPTY_CATALOG_PROGRAM, parseCatalogText } from "./catalog.js";
 import { runPdfPreflight } from "./pdf-preflight.js";
 import { detectPdfRuntime, PDF_RUNTIME } from "./pdf-runtime.js";
-import { buildRoadmapLayout, ROADMAP_CATEGORIES } from "./roadmap-policy.js";
+import { buildRoadmapLayout, moveProgramToLane, ROADMAP_CATEGORIES } from "./roadmap-policy.js";
 import { sampleRoadmap } from "./sample-roadmap.js";
 
 const months = Array.from({ length: 12 }, (_, index) => `${index + 1}월`);
@@ -21,14 +21,28 @@ async function readApiJson(response) {
   }
 }
 
-function RoadmapEvent({ item }) {
+function RoadmapEvent({ item, dragging, onDragStart, onDragEnd, onMove }) {
+  const moveByKeyboard = (event) => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    onMove(item.id, item.rowIndex + (event.key === "ArrowUp" ? -1 : 1));
+  };
+
   return (
     <div
-      className={`roadmap-event roadmap-event--${item.category}`}
+      className={`roadmap-event roadmap-event--${item.category}${dragging ? " roadmap-event--dragging" : ""}`}
       data-program-id={item.id}
       style={{ "--start": item.startOffset, "--span": item.span }}
+      draggable
+      role="button"
+      tabIndex="0"
+      aria-label={`${item.title}, ${categoryLabel[item.category]}. 위아래 화살표 키로 행 이동`}
+      onDragStart={(event) => onDragStart(event, item.id)}
+      onDragEnd={onDragEnd}
+      onKeyDown={moveByKeyboard}
     >
       <div className="roadmap-event__copy">
+        <span className="roadmap-event__handle no-print" aria-hidden="true">↕</span>
         <span>{`[${categoryLabel[item.category]}] ${item.title}`}</span>
         {item.amountKrw != null ? <sup>{formatAmount(item.amountKrw)}</sup> : null}
       </div>
@@ -219,6 +233,9 @@ export function App() {
   const [catalogMutation, setCatalogMutation] = useState({ status: "idle", error: "", fields: {} });
   const [catalogNotice, setCatalogNotice] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [activeCategory, setActiveCategory] = useState(ROADMAP_CATEGORIES[0].key);
+  const [draggingProgramId, setDraggingProgramId] = useState(null);
+  const [layoutNotice, setLayoutNotice] = useState("");
   const roadmapHeading = useRef(null);
   const catalogHeading = useRef(null);
   const moveFocus = useRef(false);
@@ -269,7 +286,12 @@ export function App() {
 
   const updateProgram = (id, patch) => setDocument((current) => ({
     ...current,
-    programs: current.programs.map((program) => program.id === id ? { ...program, ...patch } : program),
+    programs: current.programs.map((program) => {
+      if (program.id !== id) return program;
+      const next = { ...program, ...patch };
+      if (patch.category && patch.category !== program.category) delete next.laneIndex;
+      return next;
+    }),
   }));
 
   const addProgram = () => setDocument((current) => {
@@ -277,7 +299,7 @@ export function App() {
     return {
       ...current,
       programs: [...current.programs, {
-        id: globalThis.crypto.randomUUID(), category: "business", title: "", startMonth: 1, endMonth: 1, amountKrw: null, sequence: nextSequence,
+        id: globalThis.crypto.randomUUID(), category: activeCategory, title: "", startMonth: 1, endMonth: 1, amountKrw: null, sequence: nextSequence,
       }],
     };
   });
@@ -294,6 +316,25 @@ export function App() {
     ...current,
     programs: current.programs.filter((program) => program.id !== id),
   }));
+
+  const moveProgram = (programId, targetLaneIndex) => {
+    const result = moveProgramToLane({ programs: document.programs, programId, targetLaneIndex });
+    if (!result.ok) {
+      setLayoutNotice("해당 행에는 배치할 수 없습니다.");
+      return;
+    }
+    setDocument((current) => ({ ...current, programs: result.programs }));
+    setLayoutNotice(result.outcome === "swapped" ? "겹치는 사업의 행을 교환했습니다." : "사업의 행을 이동했습니다.");
+  };
+
+  const startDrag = (event, programId) => {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", programId);
+    setLayoutNotice("");
+    setDraggingProgramId(programId);
+  };
+
+  const endDrag = () => setDraggingProgramId(null);
 
   const openCatalogForm = (program = null) => {
     setCatalogMutation({ status: "idle", error: "", fields: {} });
@@ -366,6 +407,8 @@ export function App() {
   )));
   const canGoBack = catalogOffset > 0;
   const canGoForward = catalogOffset + catalog.items.length < catalog.total;
+  const activePrograms = document.programs.filter((program) => program.category === activeCategory);
+  const draggingProgram = document.programs.find((program) => program.id === draggingProgramId);
 
   return (
     <>
@@ -411,8 +454,31 @@ export function App() {
                       <div className="roadmap-section__label">{section.label}</div>
                       <div className="roadmap-section__timeline">
                         {section.lanes.map((lane, laneIndex) => (
-                          <div className="roadmap-lane" key={`${section.key}-${laneIndex}`}>
-                            {lane.map((item) => <RoadmapEvent item={item} key={item.id} />)}
+                          <div
+                            className="roadmap-lane"
+                            key={`${section.key}-${laneIndex}`}
+                            data-drop-state={draggingProgram?.category === section.key
+                              ? (moveProgramToLane({ programs: document.programs, programId: draggingProgramId, targetLaneIndex: laneIndex }).ok ? "valid" : "invalid")
+                              : undefined}
+                            onDragOver={(event) => {
+                              if (draggingProgram?.category === section.key) event.preventDefault();
+                            }}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              if (draggingProgram?.category === section.key) moveProgram(draggingProgramId, laneIndex);
+                              endDrag();
+                            }}
+                          >
+                            {lane.map((item) => (
+                              <RoadmapEvent
+                                item={item}
+                                key={item.id}
+                                dragging={item.id === draggingProgramId}
+                                onDragStart={startDrag}
+                                onDragEnd={endDrag}
+                                onMove={moveProgram}
+                              />
+                            ))}
                           </div>
                         ))}
                       </div>
@@ -431,6 +497,7 @@ export function App() {
               </footer>
             </article>
           </main>
+          {layoutNotice ? <p className="layout-notice no-print" role="status" aria-live="polite">{layoutNotice}</p> : null}
 
           <section className="authoring-panel no-print" aria-labelledby="roadmap-editor-heading">
             <h2 id="roadmap-editor-heading" ref={roadmapHeading} tabIndex="-1">로드맵 편집</h2>
@@ -441,11 +508,16 @@ export function App() {
               </label>
               <button type="button" onClick={addProgram}>사업 직접 추가</button>
             </div>
+            <nav className="category-tabs" aria-label="사업 구분">
+              {ROADMAP_CATEGORIES.map(({ key, label }) => (
+                <button type="button" key={key} aria-pressed={activeCategory === key} onClick={() => setActiveCategory(key)}>{label}</button>
+              ))}
+            </nav>
             <div className="program-columns" aria-hidden="true">
               <span>구분</span><span>사업명</span><span>시작월</span><span>종료월</span><span>금액(원)</span><span />
             </div>
             <div className="program-list">
-              {document.programs.map((program) => (
+              {activePrograms.map((program) => (
                 <ProgramEditor
                   key={program.id}
                   program={program}

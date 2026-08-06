@@ -146,6 +146,31 @@ button {
   box-shadow: 0 3px 10px rgb(7 25 81 / 18%);
 }
 
+.category-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 12px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.category-tabs button {
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid #cbd0da;
+  border-radius: 999px;
+  color: #5b6270;
+  background: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.category-tabs button[aria-pressed="true"] {
+  border-color: #071951;
+  color: #fff;
+  background: #071951;
+}
+
 .workspace-switch button:focus-visible,
 .catalog-panel button:focus-visible,
 .catalog-panel a:focus-visible {
@@ -245,6 +270,14 @@ button {
   gap: 7px;
   max-height: 290px;
   overflow: auto;
+}
+
+.layout-notice {
+  width: min(1120px, calc(100% - 32px));
+  margin: 8px auto 0;
+  color: #214f2b;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .delete-program {
@@ -974,6 +1007,18 @@ button {
   height: 10.287mm;
 }
 
+.roadmap-lane[data-drop-state="valid"] {
+  background: rgb(91 155 213 / 13%);
+  outline: 0.6pt dashed #5b9bd5;
+  outline-offset: -0.6pt;
+}
+
+.roadmap-lane[data-drop-state="invalid"] {
+  background: rgb(181 58 58 / 10%);
+  outline: 0.6pt solid #b53a3a;
+  outline-offset: -0.6pt;
+}
+
 .roadmap-section--certification .roadmap-lane {
   height: 10.287mm;
 }
@@ -984,6 +1029,17 @@ button {
   left: calc(var(--start) * (100% / 12) + 0.7mm);
   width: calc(var(--span) * (100% / 12) - 1.4mm);
   min-width: 3mm;
+  cursor: grab;
+}
+
+.roadmap-event--dragging {
+  cursor: grabbing;
+  opacity: 0.55;
+}
+
+.roadmap-event:focus-visible {
+  outline: 1.5pt solid #071951;
+  outline-offset: 1pt;
 }
 
 .roadmap-event__copy {
@@ -996,6 +1052,13 @@ button {
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
+}
+
+.roadmap-event__handle {
+  display: inline-block;
+  margin-right: 1pt;
+  color: #5b6270;
+  font-size: 5pt;
 }
 
 .roadmap-event__copy sup {
@@ -1073,6 +1136,11 @@ button {
 
   .no-print {
     display: none !important;
+  }
+
+  .roadmap-lane[data-drop-state] {
+    background: transparent;
+    outline: 0;
   }
 
   .preview-stage {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildRoadmapLayout, ROADMAP_CATEGORIES, validateRoadmapDocument } from "../src/roadmap-policy.js";
+import { buildRoadmapLayout, moveProgramToLane, ROADMAP_CATEGORIES, validateRoadmapDocument } from "../src/roadmap-policy.js";
 
 const program = (id, startMonth, endMonth, extra = {}) => ({
   id,
@@ -43,6 +43,23 @@ test("places inclusive month ranges with deterministic first-fit", () => {
   ]);
 });
 
+test("keeps valid explicit lanes and first-fits unassigned programs", () => {
+  const result = buildRoadmapLayout({
+    clientName: "ANP",
+    programs: [
+      program("p1", 1, 2, { laneIndex: 1 }),
+      program("p2", 1, 2),
+      program("p3", 3, 4),
+    ],
+  });
+  const rows = result.sections[0].lanes.map((lane) => lane.map(({ id, rowIndex }) => ({ id, rowIndex })));
+
+  assert.deepEqual(rows, [
+    [{ id: "p2", rowIndex: 0 }, { id: "p3", rowIndex: 0 }],
+    [{ id: "p1", rowIndex: 1 }],
+  ]);
+});
+
 test("blocks instead of creating rows above the category ceiling", () => {
   const result = buildRoadmapLayout({ clientName: "ANP", programs: [program("p1", 1, 2), program("p2", 1, 2), program("p3", 1, 2)] });
   assert.equal(result.sections[0].lanes.length, 2);
@@ -58,4 +75,61 @@ test("rejects duplicate ids, unknown categories, missing titles, and invalid seq
   assert.deepEqual(new Set(errors.map(({ code }) => code)), new Set([
     "E_PROGRAM_ID_DUPLICATE", "E_CATEGORY_UNKNOWN", "E_TITLE_REQUIRED", "E_SEQUENCE_INVALID",
   ]));
+});
+
+test("moves a program to an empty valid lane without mutating the input", () => {
+  const programs = [program("p1", 1, 2), program("p2", 3, 4)];
+  const result = moveProgramToLane({ programs, programId: "p1", targetLaneIndex: 1 });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.outcome, "moved");
+  assert.notEqual(result.programs, programs);
+  assert.equal(programs[0].laneIndex, undefined);
+  assert.equal(result.programs.find((item) => item.id === "p1").laneIndex, 1);
+});
+
+test("moves a valid program despite incomplete rows elsewhere in the document", () => {
+  const programs = [
+    program("p1", 1, 2, { title: "" }),
+    program("p2", 3, 4, { category: "voucher", startMonth: 0 }),
+  ];
+  const result = moveProgramToLane({ programs, programId: "p1", targetLaneIndex: 1 });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.programs.find((item) => item.id === "p1").laneIndex, 1);
+});
+
+test("swaps exactly one conflict when both resulting lanes stay valid", () => {
+  const programs = [
+    program("p1", 1, 2, { laneIndex: 0 }),
+    program("p2", 1, 2, { laneIndex: 1 }),
+  ];
+  const result = moveProgramToLane({ programs, programId: "p1", targetLaneIndex: 1 });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.outcome, "swapped");
+  assert.equal(result.programs.find((item) => item.id === "p1").laneIndex, 1);
+  assert.equal(result.programs.find((item) => item.id === "p2").laneIndex, 0);
+});
+
+test("rejects invalid lanes and multiple conflicts without mutation", () => {
+  const programs = [
+    program("p1", 1, 2, { laneIndex: 0 }),
+    program("p2", 1, 1, { laneIndex: 1 }),
+    program("p3", 2, 2, { laneIndex: 1 }),
+  ];
+
+  assert.deepEqual(moveProgramToLane({ programs, programId: "p1", targetLaneIndex: 2 }), { ok: false, programs, outcome: "rejected" });
+  assert.deepEqual(moveProgramToLane({ programs, programId: "p1", targetLaneIndex: 1 }), { ok: false, programs, outcome: "rejected" });
+});
+
+test("rejects one-conflict swaps that create a second conflict in the source lane", () => {
+  const programs = [
+    program("p1", 1, 1, { laneIndex: 0 }),
+    program("p2", 1, 2, { laneIndex: 1 }),
+    program("p3", 2, 2, { laneIndex: 0 }),
+  ];
+  const result = moveProgramToLane({ programs, programId: "p1", targetLaneIndex: 1 });
+
+  assert.deepEqual(result, { ok: false, programs, outcome: "rejected" });
 });

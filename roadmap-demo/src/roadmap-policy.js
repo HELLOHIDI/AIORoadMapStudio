@@ -74,6 +74,32 @@ function overlaps(a, b) {
   return a.startMonth <= b.endMonth && b.startMonth <= a.endMonth;
 }
 
+function programOrder(a, b) {
+  return a.startMonth - b.startMonth
+    || a.endMonth - b.endMonth
+    || a.sequence - b.sequence
+    || a.id.localeCompare(b.id);
+}
+
+function hasValidLaneIndex(program, category) {
+  return Number.isInteger(program?.laneIndex) && program.laneIndex >= 0 && program.laneIndex < category.maxRows;
+}
+
+function placedProgram(program, rowIndex) {
+  return {
+    ...program,
+    rowIndex,
+    startOffset: program.startMonth - 1,
+    span: program.endMonth - program.startMonth + 1,
+  };
+}
+
+function hasValidMonthRange(program) {
+  return Number.isInteger(program?.startMonth) && program.startMonth >= 1 && program.startMonth <= 12
+    && Number.isInteger(program?.endMonth) && program.endMonth >= 1 && program.endMonth <= 12
+    && program.startMonth <= program.endMonth;
+}
+
 export function buildRoadmapLayout(input) {
   const { document, errors } = validateRoadmapDocument(input);
   const invalidIds = new Set(errors.map((item) => item.programId).filter(Boolean));
@@ -85,25 +111,72 @@ export function buildRoadmapLayout(input) {
   for (const section of sections) {
     const programs = document.programs
       .filter((program) => program.category === section.key && !invalidIds.has(program.id))
-      .sort((a, b) => a.startMonth - b.startMonth
-        || a.endMonth - b.endMonth
-        || a.sequence - b.sequence
-        || a.id.localeCompare(b.id));
+      .sort(programOrder);
 
-    for (const program of programs) {
+    for (const program of programs.filter((item) => hasValidLaneIndex(item, section))) {
+      const lane = section.lanes[program.laneIndex];
+      if (lane.some((placed) => overlaps(placed, program))) {
+        errors.push(error("E_ROW_CAPACITY", `programs.${program.id}`, `${section.label}의 최대 행 수를 초과했습니다.`, program.id));
+        continue;
+      }
+      lane.push(placedProgram(program, program.laneIndex));
+    }
+
+    for (const program of programs.filter((item) => !hasValidLaneIndex(item, section))) {
       const rowIndex = section.lanes.findIndex((lane) => lane.every((placed) => !overlaps(placed, program)));
       if (rowIndex === -1) {
         errors.push(error("E_ROW_CAPACITY", `programs.${program.id}`, `${section.label}의 최대 행 수를 초과했습니다.`, program.id));
         continue;
       }
-      section.lanes[rowIndex].push({
-        ...program,
-        rowIndex,
-        startOffset: program.startMonth - 1,
-        span: program.endMonth - program.startMonth + 1,
-      });
+      section.lanes[rowIndex].push(placedProgram(program, rowIndex));
     }
   }
 
   return { document, sections, errors };
+}
+
+export function moveProgramToLane({ programs, programId, targetLaneIndex }) {
+  const program = programs.find((item) => item.id === programId);
+  const category = categoryByKey.get(program?.category);
+  if (!program || !category || !Number.isInteger(targetLaneIndex) || targetLaneIndex < 0 || targetLaneIndex >= category.maxRows) {
+    return { ok: false, programs, outcome: "rejected" };
+  }
+
+  const lanePrograms = programs
+    .filter((item) => item.category === program.category && hasValidMonthRange(item))
+    .map((item) => ({ ...item, title: item.title || "layout" }));
+  if (!lanePrograms.some((item) => item.id === programId)) return { ok: false, programs, outcome: "rejected" };
+
+  const layout = buildRoadmapLayout({ clientName: "layout", programs: lanePrograms });
+
+  const section = layout.sections.find((item) => item.key === program.category);
+  const current = section.lanes.flat().find((item) => item.id === programId);
+  if (!current) return { ok: false, programs, outcome: "rejected" };
+
+  const conflicts = section.lanes[targetLaneIndex].filter((item) => item.id !== programId && overlaps(item, program));
+  if (conflicts.length === 0) {
+    return {
+      ok: true,
+      programs: programs.map((item) => item.id === programId ? { ...item, laneIndex: targetLaneIndex } : item),
+      outcome: "moved",
+    };
+  }
+  if (conflicts.length !== 1) return { ok: false, programs, outcome: "rejected" };
+
+  const [conflict] = conflicts;
+  const targetRest = section.lanes[targetLaneIndex].filter((item) => item.id !== programId && item.id !== conflict.id);
+  const sourceRest = section.lanes[current.rowIndex].filter((item) => item.id !== programId && item.id !== conflict.id);
+  const validSwap = targetRest.every((item) => !overlaps(item, program))
+    && sourceRest.every((item) => !overlaps(item, conflict));
+  if (!validSwap) return { ok: false, programs, outcome: "rejected" };
+
+  return {
+    ok: true,
+    programs: programs.map((item) => {
+      if (item.id === programId) return { ...item, laneIndex: targetLaneIndex };
+      if (item.id === conflict.id) return { ...item, laneIndex: current.rowIndex };
+      return item;
+    }),
+    outcome: "swapped",
+  };
 }

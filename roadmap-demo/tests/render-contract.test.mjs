@@ -34,3 +34,16 @@ test("keeps creation text-first while leaving catalog editing field-based", () =
 test("renders the roadmap before its editing controls", () => {
   assert.ok(app.indexOf('<main className="preview-stage"') < app.indexOf('<section className="authoring-panel no-print"'));
 });
+
+test("keeps category tabs and direct roadmap moves outside print", () => {
+  assert.ok(app.includes('className="category-tabs"'));
+  assert.ok(app.includes('const activePrograms = document.programs.filter'));
+  assert.ok(app.includes('category: activeCategory'));
+  assert.ok(app.includes('draggable'));
+  assert.ok(app.includes('onDrop={(event) =>'));
+  assert.ok(app.includes('className="roadmap-event__handle no-print"'));
+  assert.match(styles, /\.category-tabs\s*\{/);
+  assert.match(styles, /\.roadmap-lane\[data-drop-state="valid"\]/);
+  assert.match(styles, /\.roadmap-lane\[data-drop-state="valid"\][\s\S]*outline:\s*0\.6pt dashed/s);
+  assert.match(styles, /@media print\s*\{[\s\S]*\.roadmap-lane\[data-drop-state\]\s*\{[^}]*outline:\s*0;/s);
+});
