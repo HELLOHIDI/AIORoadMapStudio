@@ -18,6 +18,7 @@ for (const file of [index, worker, hosting, migrations, catalogOptions]) {
 
 mkdirSync(path.join(dist, "server"), { recursive: true });
 mkdirSync(path.join(dist, ".openai"), { recursive: true });
+rmSync(path.join(dist, ".openai", "drizzle"), { recursive: true, force: true });
 mkdirSync(path.join(dist, ".openai", "drizzle"), { recursive: true });
 rmSync(path.join(dist, "catalog-options.js"), { force: true });
 rmSync(path.join(dist, "server", "catalog-options.js"), { force: true });

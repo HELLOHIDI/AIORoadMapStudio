@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS catalog_programs (
   end_month INTEGER NOT NULL CHECK (end_month BETWEEN 1 AND 12 AND start_month <= end_month),
   target TEXT NOT NULL CHECK (length(target) BETWEEN 1 AND 1000),
   details TEXT NOT NULL CHECK (length(details) BETWEEN 1 AND 4000),
+  industries_json TEXT NOT NULL DEFAULT '[]',
+  regions_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

@@ -200,7 +200,6 @@ test("emits the files required by Sites packaging", async () => {
   await access(new URL("../dist/server/index.js", import.meta.url));
   await access(new URL("../dist/.openai/hosting.json", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0000_catalog_programs.sql", import.meta.url));
-  await access(new URL("../dist/.openai/drizzle/0001_catalog_program_tags.sql", import.meta.url));
   const server = await readFile(new URL("../dist/server/index.js", import.meta.url), "utf8");
   assert.deepEqual(server.match(/^export /gm), ["export "]);
 });
