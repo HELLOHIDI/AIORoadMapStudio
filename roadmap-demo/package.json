@@ -1,0 +1,21 @@
+{
+  "name": "roadmap-demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/prepare-sites-build.mjs",
+    "preview": "vite preview",
+    "test": "node --test tests/amount.test.mjs tests/catalog.test.mjs tests/roadmap-policy.test.mjs tests/pdf-runtime.test.mjs tests/pdf-preflight.test.mjs tests/render-contract.test.mjs",
+    "test:sites": "node --test tests/sites-worker.test.mjs",
+    "verify:pdf": "node scripts/verify-roadmap-pdf.mjs"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "5.0.4",
+    "vite": "6.4.3",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {}
+}
