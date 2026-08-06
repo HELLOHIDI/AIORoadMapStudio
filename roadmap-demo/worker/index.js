@@ -114,12 +114,22 @@ const SELECT_FIELDS = `
 async function listCatalog(request, db) {
   const url = new URL(request.url);
   const q = cleanString(url.searchParams.get("q")).slice(0, 100);
+  const category = cleanString(url.searchParams.get("category"));
   const requestedLimit = Number.parseInt(url.searchParams.get("limit") ?? "50", 10);
   const requestedOffset = Number.parseInt(url.searchParams.get("offset") ?? "0", 10);
   const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50;
   const offset = Number.isInteger(requestedOffset) ? Math.min(Math.max(requestedOffset, 0), 100_000) : 0;
-  const searchSql = q ? " WHERE title LIKE ? OR target LIKE ? OR details LIKE ?" : "";
-  const searchParams = q ? [`%${q}%`, `%${q}%`, `%${q}%`] : [];
+  const filters = [];
+  const searchParams = [];
+  if (q) {
+    filters.push("(title LIKE ? OR target LIKE ? OR details LIKE ?)");
+    searchParams.push(`%${q}%`, `%${q}%`, `%${q}%`);
+  }
+  if (CATEGORIES.has(category)) {
+    filters.push("category = ?");
+    searchParams.push(category);
+  }
+  const searchSql = filters.length ? ` WHERE ${filters.join(" AND ")}` : "";
 
   const [page, count] = await Promise.all([
     db.prepare(`SELECT ${SELECT_FIELDS} FROM catalog_programs${searchSql} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`)

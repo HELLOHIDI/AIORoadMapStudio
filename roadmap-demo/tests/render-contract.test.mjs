@@ -41,7 +41,9 @@ test("keeps category tabs and direct roadmap moves outside print", () => {
   assert.ok(app.includes('category: activeCategory'));
   assert.ok(app.includes('draggable'));
   assert.ok(app.includes('onDrop={(event) =>'));
-  assert.ok(app.includes('className="roadmap-event__handle no-print"'));
+  assert.ok(!app.includes('roadmap-event__handle'));
+  assert.ok(app.includes('params.set("category", catalogCategory)'));
+  assert.ok(app.includes('사업 상세보기'));
   assert.match(styles, /\.category-tabs\s*\{/);
   assert.match(styles, /\.roadmap-lane\[data-drop-state="valid"\]/);
   assert.match(styles, /\.roadmap-lane\[data-drop-state="valid"\][\s\S]*outline:\s*0\.6pt dashed/s);

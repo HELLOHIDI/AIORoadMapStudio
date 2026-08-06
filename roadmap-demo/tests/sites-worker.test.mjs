@@ -77,23 +77,29 @@ function createDatabase() {
         bind(...params) {
           return {
             async all() {
-              const hasSearch = statement.includes(" WHERE title LIKE");
+              const hasSearch = statement.includes("title LIKE");
+              const hasCategory = statement.includes("category = ?");
               const query = hasSearch ? String(params[0]).slice(1, -1).toLowerCase() : "";
-              const pageParams = hasSearch ? params.slice(3) : params;
+              const category = hasCategory ? params[hasSearch ? 3 : 0] : "";
+              const pageParams = params.slice((hasSearch ? 3 : 0) + (hasCategory ? 1 : 0));
               const [limit, offset] = pageParams;
               const items = rows
                 .filter((row) => !query || [row.title, row.target, row.details]
                   .some((value) => value.toLowerCase().includes(query)))
+                .filter((row) => !category || row.category === category)
                 .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id))
                 .slice(offset, offset + limit);
               return { results: items };
             },
             async first() {
-              const hasSearch = statement.includes(" WHERE title LIKE");
+              const hasSearch = statement.includes("title LIKE");
+              const hasCategory = statement.includes("category = ?");
               const query = hasSearch ? String(params[0]).slice(1, -1).toLowerCase() : "";
+              const category = hasCategory ? params[hasSearch ? 3 : 0] : "";
               return {
                 total: rows.filter((row) => !query || [row.title, row.target, row.details]
-                  .some((value) => value.toLowerCase().includes(query))).length,
+                  .some((value) => value.toLowerCase().includes(query)))
+                  .filter((row) => !category || row.category === category).length,
               };
             },
             async run() {
@@ -181,6 +187,11 @@ test("validates and persists catalog CRUD through D1", async () => {
   const list = await listResponse.json();
   assert.equal(list.total, 1);
   assert.equal(list.items[0].id, created.item.id);
+
+  const categoryResponse = await request("/api/catalog-programs?category=business&limit=50&offset=0");
+  const categoryList = await categoryResponse.json();
+  assert.equal(categoryList.total, 1);
+  assert.equal(categoryList.items[0].id, created.item.id);
 
   const updatedResponse = await request(`/api/catalog-programs/${created.item.id}`, {
     method: "PUT",

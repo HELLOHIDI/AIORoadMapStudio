@@ -42,7 +42,6 @@ function RoadmapEvent({ item, dragging, onDragStart, onDragEnd, onMove }) {
       onKeyDown={moveByKeyboard}
     >
       <div className="roadmap-event__copy">
-        <span className="roadmap-event__handle no-print" aria-hidden="true">↕</span>
         <span>{`[${categoryLabel[item.category]}] ${item.title}`}</span>
         {item.amountKrw != null ? <sup>{formatAmount(item.amountKrw)}</sup> : null}
       </div>
@@ -227,6 +226,7 @@ export function App() {
   const [catalog, setCatalog] = useState({ status: "idle", items: [], total: 0, limit: 50, offset: 0, error: "" });
   const [catalogSearch, setCatalogSearch] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
+  const [catalogCategory, setCatalogCategory] = useState(ROADMAP_CATEGORIES[0].key);
   const [catalogOffset, setCatalogOffset] = useState(0);
   const [catalogRefresh, setCatalogRefresh] = useState(0);
   const [catalogForm, setCatalogForm] = useState(null);
@@ -264,6 +264,7 @@ export function App() {
 
     const params = new URLSearchParams({ limit: "50", offset: String(catalogOffset) });
     if (catalogQuery) params.set("q", catalogQuery);
+    params.set("category", catalogCategory);
     fetch(`/api/catalog-programs?${params}`, { signal: controller.signal, headers: { accept: "application/json" } })
       .then(async (response) => {
         const data = await readApiJson(response);
@@ -276,7 +277,7 @@ export function App() {
       });
 
     return () => controller.abort();
-  }, [mode, catalogQuery, catalogOffset, catalogRefresh]);
+  }, [mode, catalogQuery, catalogCategory, catalogOffset, catalogRefresh]);
 
   const switchMode = (nextMode) => {
     if (nextMode === mode) return;
@@ -571,6 +572,14 @@ export function App() {
                 </label>
                 <button type="submit" className="button-secondary">검색</button>
               </form>
+              <nav className="category-tabs catalog-category-tabs" aria-label="사업 카탈로그 구분">
+                {ROADMAP_CATEGORIES.map(({ key, label }) => (
+                  <button type="button" key={key} aria-pressed={catalogCategory === key} onClick={() => {
+                    setCatalogCategory(key);
+                    setCatalogOffset(0);
+                  }}>{label}</button>
+                ))}
+              </nav>
 
               {catalogNotice ? (
                 <div className={`catalog-notice catalog-notice--${catalogNotice.tone}`} role="status" aria-live="polite">
@@ -604,19 +613,15 @@ export function App() {
                       <dl className="catalog-row__meta">
                         <div><dt>지원금액</dt><dd>{program.amountKrw == null ? "금액 미정" : `최대 ${formatAmount(program.amountKrw)}`}</dd></div>
                         <div><dt>지원기간</dt><dd>{program.startMonth}~{program.endMonth}월</dd></div>
+                        {program.industries?.length ? <div><dt>업종</dt><dd>{program.industries.map((tag) => <span key={tag}>{tag}</span>)}</dd></div> : null}
+                        {program.regions?.length ? <div><dt>지역</dt><dd>{program.regions.map((tag) => <span key={tag}>{tag}</span>)}</dd></div> : null}
                       </dl>
-                      {program.industries?.length || program.regions?.length ? (
-                        <div className="catalog-row__tags">
-                          {program.industries?.length ? <div><strong>업종</strong>{program.industries.map((tag) => <span key={tag}>{tag}</span>)}</div> : null}
-                          {program.regions?.length ? <div><strong>지역</strong>{program.regions.map((tag) => <span key={tag}>{tag}</span>)}</div> : null}
-                        </div>
-                      ) : null}
-                      <p><strong>지원대상</strong>{program.target}</p>
                       <details>
-                        <summary>지원내용 보기</summary>
+                        <summary>사업 상세보기</summary>
+                        <p><strong>지원대상</strong>{program.target}</p>
                         <p>{program.details}</p>
+                        <a href={program.link} target="_blank" rel="noreferrer">공고 링크 열기</a>
                       </details>
-                      <a href={program.link} target="_blank" rel="noreferrer">공고 링크 열기</a>
                     </div>
                     <div className="catalog-row__actions">
                       <button type="button" className="button-primary" onClick={() => addCatalogProgram(program)}>로드맵에 추가</button>
