@@ -618,9 +618,9 @@ export function App() {
                       </dl>
                       <details>
                         <summary>사업 상세보기</summary>
-                        <p><strong>지원대상</strong>{program.target}</p>
-                        <p>{program.details}</p>
-                        <a href={program.link} target="_blank" rel="noreferrer">공고 링크 열기</a>
+                        <p className="catalog-row__detail"><strong>지원대상:</strong><span>{program.target}</span></p>
+                        <p className="catalog-row__detail"><strong>지원 내용:</strong><span>{program.details}</span></p>
+                        <p className="catalog-row__detail"><strong>공고 링크:</strong><a href={program.link} target="_blank" rel="noreferrer">공고 링크 열기</a></p>
                       </details>
                     </div>
                     <div className="catalog-row__actions">

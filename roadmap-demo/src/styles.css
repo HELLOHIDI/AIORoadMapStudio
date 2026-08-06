@@ -601,6 +601,17 @@ button {
   line-height: 1.55;
 }
 
+.catalog-row__detail {
+  display: flex;
+  gap: 8px;
+}
+
+.catalog-row__detail strong {
+  flex: none;
+  color: #6c7280;
+  font-size: 12px;
+}
+
 .catalog-row summary,
 .catalog-row a {
   color: #294f98;
@@ -885,7 +896,7 @@ button {
   display: grid;
   place-items: start center;
   min-height: 100vh;
-  padding: 18px 16px 40px;
+  padding: 18px 16px 56px;
   overflow: auto;
 }
 
