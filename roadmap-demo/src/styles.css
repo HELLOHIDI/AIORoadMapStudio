@@ -603,6 +603,7 @@ button {
 
 .catalog-row__detail {
   display: flex;
+  align-items: baseline;
   gap: 8px;
 }
 
@@ -610,6 +611,10 @@ button {
   flex: none;
   color: #6c7280;
   font-size: 12px;
+}
+
+.catalog-row__detail a {
+  margin-top: 0;
 }
 
 .catalog-row summary,
