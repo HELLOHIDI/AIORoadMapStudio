@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
+import { INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";
 import worker from "../worker/index.js";
 
 test("serves existing static assets without a fallback", async () => {
@@ -69,40 +70,60 @@ test("does not turn missing API or write requests into the app shell", async () 
 
 function createDatabase() {
   const rows = [];
+  const options = [];
+  const filterRows = (statement, params) => {
+    let index = 0;
+    const hasSearch = statement.includes("title LIKE");
+    const query = hasSearch ? String(params[index++]).slice(1, -1).toLowerCase() : "";
+    if (hasSearch) index += 2;
+    const hasCategory = statement.includes("category = ?");
+    const category = hasCategory ? params[index++] : "";
+    const hasIndustries = statement.includes("json_each(industries_json)");
+    const industryCount = hasIndustries ? (statement.match(/json_each\(industries_json\)[^)]+\)/)?.[0].match(/\?/g) ?? []).length : 0;
+    const industries = params.slice(index, index + industryCount);
+    index += industryCount;
+    const hasRegions = statement.includes("json_each(regions_json)");
+    const regionCount = hasRegions ? (statement.match(/json_each\(regions_json\)[^)]+\)/)?.[0].match(/\?/g) ?? []).length : 0;
+    const regions = params.slice(index, index + regionCount);
+
+    return rows
+      .filter((row) => !query || [row.title, row.target, row.details]
+        .some((value) => value.toLowerCase().includes(query)))
+      .filter((row) => !category || row.category === category)
+      .filter((row) => !industries.length || JSON.parse(row.industriesJson).some((value) => industries.includes(value)))
+      .filter((row) => !regions.length || JSON.parse(row.regionsJson).some((value) => regions.includes(value)));
+  };
   return {
     rows,
+    options,
     prepare(sql) {
       const statement = sql.replace(/\s+/g, " ").trim();
       return {
         bind(...params) {
           return {
             async all() {
-              const hasSearch = statement.includes("title LIKE");
-              const hasCategory = statement.includes("category = ?");
-              const query = hasSearch ? String(params[0]).slice(1, -1).toLowerCase() : "";
-              const category = hasCategory ? params[hasSearch ? 3 : 0] : "";
-              const pageParams = params.slice((hasSearch ? 3 : 0) + (hasCategory ? 1 : 0));
+              if (statement.startsWith("SELECT kind, value FROM catalog_options")) {
+                return { results: options.toSorted((left, right) => left.kind.localeCompare(right.kind) || left.value.localeCompare(right.value)) };
+              }
+              const pageParams = params.slice(params.length - 2);
               const [limit, offset] = pageParams;
-              const items = rows
-                .filter((row) => !query || [row.title, row.target, row.details]
-                  .some((value) => value.toLowerCase().includes(query)))
-                .filter((row) => !category || row.category === category)
+              const items = filterRows(statement, params)
                 .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id))
                 .slice(offset, offset + limit);
               return { results: items };
             },
             async first() {
-              const hasSearch = statement.includes("title LIKE");
-              const hasCategory = statement.includes("category = ?");
-              const query = hasSearch ? String(params[0]).slice(1, -1).toLowerCase() : "";
-              const category = hasCategory ? params[hasSearch ? 3 : 0] : "";
               return {
-                total: rows.filter((row) => !query || [row.title, row.target, row.details]
-                  .some((value) => value.toLowerCase().includes(query)))
-                  .filter((row) => !category || row.category === category).length,
+                total: filterRows(statement, params).length,
               };
             },
             async run() {
+              if (statement.startsWith("INSERT OR IGNORE INTO catalog_options")) {
+                const [kind, value, createdAt] = params;
+                if (options.some((item) => item.kind === kind && item.value === value)) return { meta: { changes: 0 } };
+                options.push({ kind, value, createdAt });
+                return { meta: { changes: 1 } };
+              }
               if (statement.startsWith("INSERT")) {
                 const [id, category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, createdAt, updatedAt] = params;
                 rows.push({ id, category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, createdAt, updatedAt });
@@ -256,6 +277,124 @@ test("validates and persists catalog CRUD through D1", async () => {
   assert.equal(DB.rows.length, 0);
 });
 
+test("persists catalog options independently and accepts them in catalog writes", async () => {
+  const DB = createDatabase();
+  const env = { DB };
+  const request = (path, options) => worker.fetch(new Request(`https://example.test${path}`, options), env);
+
+  const industryResponse = await request("/api/catalog-options", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind: "industry", value: "  Space Tech  " }),
+  });
+  assert.equal(industryResponse.status, 201);
+  assert.deepEqual(await industryResponse.json(), { item: { kind: "industry", value: "Space Tech" }, created: true });
+
+  const duplicateResponse = await request("/api/catalog-options", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind: "industry", value: "Space Tech" }),
+  });
+  assert.equal(duplicateResponse.status, 200);
+  assert.deepEqual(await duplicateResponse.json(), { item: { kind: "industry", value: "Space Tech" }, created: false });
+
+  const seededDuplicateResponse = await request("/api/catalog-options", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind: "industry", value: INDUSTRY_OPTIONS[0] }),
+  });
+  assert.equal(seededDuplicateResponse.status, 200);
+  assert.deepEqual(await seededDuplicateResponse.json(), {
+    item: { kind: "industry", value: INDUSTRY_OPTIONS[0] },
+    created: false,
+  });
+  assert.equal(DB.options.length, 1);
+
+  const regionResponse = await request("/api/catalog-options", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind: "region", value: "Mars Base" }),
+  });
+  assert.equal(regionResponse.status, 201);
+
+  const invalidResponse = await request("/api/catalog-options", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind: "industry", value: " " }),
+  });
+  assert.equal(invalidResponse.status, 400);
+  assert.equal(DB.options.length, 2);
+
+  const unknownFieldResponse = await request("/api/catalog-options", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind: "industry", value: "Valid", extra: true }),
+  });
+  assert.equal(unknownFieldResponse.status, 400);
+  assert.equal(DB.options.length, 2);
+
+  const optionsResponse = await request("/api/catalog-options");
+  const options = await optionsResponse.json();
+  assert.equal(options.industries.includes(INDUSTRY_OPTIONS[0]), true);
+  assert.equal(options.regions.includes(REGION_OPTIONS[0]), true);
+  assert.equal(options.industries.includes("Space Tech"), true);
+  assert.equal(options.regions.includes("Mars Base"), true);
+
+  const failedCatalog = await request("/api/catalog-programs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...catalogInput, link: "ftp://example.test", industries: ["Space Tech"], regions: ["Mars Base"] }),
+  });
+  assert.equal(failedCatalog.status, 400);
+  assert.equal(DB.options.length, 2);
+  assert.equal(DB.rows.length, 0);
+
+  const createdCatalog = await request("/api/catalog-programs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...catalogInput, industries: ["Space Tech"], regions: ["Mars Base"] }),
+  });
+  assert.equal(createdCatalog.status, 201);
+  assert.equal(DB.rows.length, 1);
+});
+
+test("filters catalog tags with OR within dimensions and AND before pagination", async () => {
+  const DB = createDatabase();
+  const row = (id, category, title, industries, regions, updatedAt) => ({
+    id,
+    category,
+    title,
+    link: "https://example.test",
+    amountKrw: 1_000_000,
+    startMonth: 1,
+    endMonth: 2,
+    target: `${title} target`,
+    details: `${title} details`,
+    industriesJson: JSON.stringify(industries),
+    regionsJson: JSON.stringify(regions),
+    createdAt: updatedAt,
+    updatedAt,
+  });
+  DB.rows.push(
+    row("skip-latest", "business", "Newest", ["Food"], ["Seoul"], "2026-01-03T00:00:00.000Z"),
+    row("ai-busan", "business", "AI Busan", ["AI"], ["Busan"], "2026-01-02T00:00:00.000Z"),
+    row("robot-seoul", "business", "Robot Seoul", ["Robotics"], ["Seoul"], "2026-01-01T00:00:00.000Z"),
+  );
+  const env = { DB };
+  const request = (path) => worker.fetch(new Request(`https://example.test${path}`), env);
+
+  const industryOnly = await (await request("/api/catalog-programs?category=business&industry=AI&industry=Robotics&limit=1&offset=0")).json();
+  assert.equal(industryOnly.total, 2);
+  assert.deepEqual(industryOnly.items.map((item) => item.id), ["ai-busan"]);
+
+  const industryAndRegion = await (await request("/api/catalog-programs?category=business&industry=AI&industry=Robotics&region=Seoul&limit=50&offset=0")).json();
+  assert.equal(industryAndRegion.total, 1);
+  assert.deepEqual(industryAndRegion.items.map((item) => item.id), ["robot-seoul"]);
+
+  const tooManyFilters = await request(`/api/catalog-programs?${Array.from({ length: 21 }, (_, index) => `industry=i${index}`).join("&")}`);
+  assert.equal(tooManyFilters.status, 400);
+});
+
 test("persists public roadmap drafts without applying PDF validity rules", async () => {
   const DB = createRoadmapDatabase();
   const env = { DB };
@@ -350,6 +489,7 @@ test("emits the files required by Sites packaging", async () => {
   await access(new URL("../dist/.openai/hosting.json", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0000_catalog_programs.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0001_saved_roadmaps.sql", import.meta.url));
+  await access(new URL("../dist/.openai/drizzle/0002_catalog_options.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/meta/_journal.json", import.meta.url));
   const server = await readFile(new URL("../dist/server/index.js", import.meta.url), "utf8");
   assert.deepEqual(server.match(/^export /gm), ["export "]);

@@ -1,6 +1,7 @@
 import { INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";
 
 const CATALOG_PATH = "/api/catalog-programs";
+const CATALOG_OPTIONS_PATH = "/api/catalog-options";
 const ROADMAP_PATH = "/api/roadmaps";
 const CATEGORIES = new Set(["consulting", "business", "voucher", "ip", "certification"]);
 const FIELDS = new Set(["category", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "industries", "regions"]);
@@ -8,6 +9,7 @@ const ROADMAP_FIELDS = new Set(["clientName", "programs"]);
 const ROADMAP_PROGRAM_FIELDS = new Set(["id", "category", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "sequence", "laneIndex"]);
 const INDUSTRIES = new Set(INDUSTRY_OPTIONS);
 const REGIONS = new Set(REGION_OPTIONS);
+const OPTION_KINDS = new Set(["industry", "region"]);
 const MAX_BODY_BYTES = 500_000;
 const MAX_ROADMAP_PROGRAMS = 500;
 
@@ -42,6 +44,10 @@ function cleanTags(value, allowed, label, fields) {
 }
 
 export function validateCatalogProgram(input) {
+  return validateCatalogProgramWithOptions(input, { industries: INDUSTRIES, regions: REGIONS });
+}
+
+function validateCatalogProgramWithOptions(input, options) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { error: "사업 정보를 JSON 객체로 입력해 주세요." };
   }
@@ -59,8 +65,8 @@ export function validateCatalogProgram(input) {
     endMonth: input.endMonth,
     target: cleanString(input.target),
     details: cleanString(input.details),
-    industries: cleanTags(input.industries, INDUSTRIES, "industries", fields),
-    regions: cleanTags(input.regions, REGIONS, "regions", fields),
+    industries: cleanTags(input.industries, options.industries, "industries", fields),
+    regions: cleanTags(input.regions, options.regions, "regions", fields),
   };
 
   if (!CATEGORIES.has(value.category)) fields.category = "지원하지 않는 구분입니다.";
@@ -84,6 +90,50 @@ export function validateCatalogProgram(input) {
   if (!value.details || value.details.length > 4000) fields.details = "지원내용은 1~4,000자로 입력해 주세요.";
 
   return Object.keys(fields).length ? { error: "입력 내용을 확인해 주세요.", fields } : { value };
+}
+
+async function catalogOptionSets(db) {
+  const industries = new Set(INDUSTRY_OPTIONS);
+  const regions = new Set(REGION_OPTIONS);
+  try {
+    const rows = await db.prepare("SELECT kind, value FROM catalog_options ORDER BY kind, value").bind().all();
+    for (const row of rows.results ?? []) {
+      if (row.kind === "industry") industries.add(row.value);
+      if (row.kind === "region") regions.add(row.value);
+    }
+  } catch (error) {
+    if (!String(error?.message ?? error).includes("catalog_options")) throw error;
+  }
+  return { industries, regions };
+}
+
+async function listCatalogOptions(db) {
+  const options = await catalogOptionSets(db);
+  return json({
+    industries: [...options.industries].sort(),
+    regions: [...options.regions].sort(),
+  });
+}
+
+async function createCatalogOption(request, db) {
+  const body = await readBody(request);
+  if (body.error) return apiError(body.status ?? 400, body.error);
+  const input = body.value;
+  const kind = input?.kind;
+  const value = cleanString(input?.value);
+  if (!input || typeof input !== "object" || Array.isArray(input)
+    || Object.keys(input).some((key) => key !== "kind" && key !== "value")
+    || !OPTION_KINDS.has(kind) || value.length < 1 || value.length > 100) {
+    return apiError(400, "공용 선택지를 확인해 주세요.");
+  }
+  if ((kind === "industry" ? INDUSTRIES : REGIONS).has(value)) {
+    return json({ item: { kind, value }, created: false });
+  }
+  const result = await db.prepare("INSERT OR IGNORE INTO catalog_options (kind, value, created_at) VALUES (?, ?, ?)")
+    .bind(kind, value, new Date().toISOString())
+    .run();
+  const created = !!result.meta?.changes;
+  return json({ item: { kind, value }, created }, created ? 201 : 200);
 }
 
 function boundedString(value, maxLength) {
@@ -169,6 +219,11 @@ async function listCatalog(request, db) {
   const url = new URL(request.url);
   const q = cleanString(url.searchParams.get("q")).slice(0, 100);
   const category = cleanString(url.searchParams.get("category"));
+  const industries = [...new Set(url.searchParams.getAll("industry").map(cleanString).filter(Boolean))];
+  const regions = [...new Set(url.searchParams.getAll("region").map(cleanString).filter(Boolean))];
+  if (industries.length > 20 || regions.length > 20 || industries.some((item) => item.length > 100) || regions.some((item) => item.length > 100)) {
+    return apiError(400, "카탈로그 필터를 확인해 주세요.");
+  }
   const requestedLimit = Number.parseInt(url.searchParams.get("limit") ?? "50", 10);
   const requestedOffset = Number.parseInt(url.searchParams.get("offset") ?? "0", 10);
   const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50;
@@ -182,6 +237,14 @@ async function listCatalog(request, db) {
   if (CATEGORIES.has(category)) {
     filters.push("category = ?");
     searchParams.push(category);
+  }
+  if (industries.length) {
+    filters.push(`EXISTS (SELECT 1 FROM json_each(industries_json) WHERE value IN (${industries.map(() => "?").join(", ")}))`);
+    searchParams.push(...industries);
+  }
+  if (regions.length) {
+    filters.push(`EXISTS (SELECT 1 FROM json_each(regions_json) WHERE value IN (${regions.map(() => "?").join(", ")}))`);
+    searchParams.push(...regions);
   }
   const searchSql = filters.length ? ` WHERE ${filters.join(" AND ")}` : "";
 
@@ -216,7 +279,7 @@ async function readBody(request) {
 async function createCatalog(request, db) {
   const body = await readBody(request);
   if (body.error) return apiError(body.status ?? 400, body.error);
-  const validated = validateCatalogProgram(body.value);
+  const validated = validateCatalogProgramWithOptions(body.value, await catalogOptionSets(db));
   if (validated.error) return apiError(400, validated.error, validated.fields);
 
   const id = crypto.randomUUID();
@@ -235,7 +298,7 @@ async function createCatalog(request, db) {
 async function updateCatalog(request, db, id) {
   const body = await readBody(request);
   if (body.error) return apiError(body.status ?? 400, body.error);
-  const validated = validateCatalogProgram(body.value);
+  const validated = validateCatalogProgramWithOptions(body.value, await catalogOptionSets(db));
   if (validated.error) return apiError(400, validated.error, validated.fields);
 
   const timestamp = new Date().toISOString();
@@ -328,8 +391,9 @@ async function deleteRoadmap(db, id) {
 async function handleApi(request, env, pathname) {
   if (!pathname.startsWith("/api/")) return null;
   const isCatalog = pathname === CATALOG_PATH || pathname.startsWith(`${CATALOG_PATH}/`);
+  const isCatalogOptions = pathname === CATALOG_OPTIONS_PATH;
   const isRoadmap = pathname === ROADMAP_PATH || pathname.startsWith(`${ROADMAP_PATH}/`);
-  if (!isCatalog && !isRoadmap) {
+  if (!isCatalog && !isCatalogOptions && !isRoadmap) {
     return apiError(404, "API 경로를 찾을 수 없습니다.");
   }
   if (!env.DB) return apiError(503, "공유 저장소를 사용할 수 없습니다.");
@@ -337,6 +401,17 @@ async function handleApi(request, env, pathname) {
   if (["POST", "PUT"].includes(request.method)
     && !request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
     return apiError(415, "JSON 형식으로 요청해 주세요.");
+  }
+
+  if (isCatalogOptions) {
+    try {
+      if (request.method === "GET") return listCatalogOptions(env.DB);
+      if (request.method === "POST") return createCatalogOption(request, env.DB);
+      return apiError(405, "지원하지 않는 요청 방식입니다.");
+    } catch (error) {
+      console.error("api error", error);
+      return apiError(500, "공용 선택지 요청을 처리하지 못했습니다.");
+    }
   }
 
   const basePath = isCatalog ? CATALOG_PATH : ROADMAP_PATH;

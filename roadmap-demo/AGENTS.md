@@ -4,6 +4,12 @@ Run the local server yourself and open the preview in the browser available to t
 
 Before making substantial visual changes, use the Product Design plugin's `get-context` skill when the visual source is unclear or no longer matches the current goal. When the user gives durable prototype-specific design feedback, preferences, or decisions, record them in `AGENTS.md`.
 
+## Product identity boundary
+
+- Use `AIO Roadmap Studio` branding only in non-print product chrome, currently the top authoring toolbar, browser title, and favicon.
+- Keep the existing `ANP Consulting` logo and identity unchanged inside the printable roadmap and client-facing PDF.
+- Do not add AIO branding to exported documents, print styles, client-share metadata, or other client-facing output without a new explicit product decision.
+
 When implementing from a selected generated mock, treat that image as the source of truth for layout, component anatomy, density, spacing, color, typography, visible content, and hierarchy.
 
 Build app UI in `src/`. Preserve the Sites packaging and static-fallback contracts in `.openai/hosting.json`, `worker/index.js`, `scripts/prepare-sites-build.mjs`, and `tests/sites-worker.test.mjs`. The Worker may add `/api/catalog-programs` handlers and D1 access for the approved shared-catalog feature, but unknown API/write requests must never fall through to the app shell. Before a Sites handoff, run `npm run build` and `npm run test:sites`; the build must leave `dist/client/index.html`, `dist/server/index.js`, and `dist/.openai/hosting.json`.

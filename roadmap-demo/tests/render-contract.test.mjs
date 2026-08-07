@@ -5,6 +5,7 @@ import { PDF_RUNTIME } from "../src/pdf-runtime.js";
 
 const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const app = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/pdf-runtime.json", import.meta.url), "utf8"));
 
 test("locks the approved PDF typography and spacing tokens", () => {
@@ -23,12 +24,32 @@ test("keeps fixed copy and the managed PDF runtime synchronized", () => {
   assert.deepEqual(fixture.profile, PDF_RUNTIME.profile);
 });
 
+test("keeps AIO branding in product chrome and ANP branding in the client PDF", () => {
+  assert.ok(index.includes('href="/assets/aio-roadmap-studio-icon.png"'));
+  assert.ok(index.includes("<title>AIO Roadmap Studio</title>"));
+  assert.ok(app.includes('className="preview-toolbar no-print"'));
+  assert.ok(app.includes('className="product-brand-icon" src="/assets/aio-roadmap-studio-icon.png"'));
+  assert.ok(app.includes("<strong>AIO Roadmap Studio</strong>"));
+  assert.ok(app.includes('className="brand-logo" src="/assets/anp-consulting-logo.png"'));
+  assert.ok(!app.includes('className="brand-logo" src="/assets/aio-roadmap-studio'));
+});
+
 test("keeps creation text-first while leaving catalog editing field-based", () => {
   assert.ok(app.includes("parseCatalogText(importText)"));
   assert.ok(app.includes("catalog-import__errors"));
   assert.ok(!app.includes("내용 불러오기"));
   assert.match(app, /form\.mode === "edit" \? <div className="catalog-form__grid">/);
   assert.match(app, /if \(!editing\) \{\s*setCatalogSearch\(""\);\s*setCatalogQuery\(""\);\s*setCatalogOffset\(0\);\s*\}/);
+});
+
+test("keeps shared tag creation and catalog filters wired to the server", () => {
+  assert.ok(app.includes('fetch("/api/catalog-options"'));
+  assert.ok(app.includes('params.append("industry", value)'));
+  assert.ok(app.includes('params.append("region", value)'));
+  assert.ok(app.includes('onCreate={form.mode === "create"'));
+  assert.ok(app.includes('“${normalizedQuery}” 공용 선택지로 추가'));
+  assert.match(styles, /\.catalog-filters\s*\{/);
+  assert.match(styles, /\.tag-picker__create\s*\{/);
 });
 
 test("renders the roadmap before its editing controls", () => {

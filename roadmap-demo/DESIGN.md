@@ -79,7 +79,7 @@
 - Spacing/layout rhythm: align to the existing wide centered authoring surface; use compact vertical rhythm for data rows and generous separation between toolbar, modes, feedback, and content.
 - Shape/radius/elevation: reuse the current modest radii and light surface shadow; prefer row dividers over card-per-record styling.
 - Motion: only brief, non-essential state transitions; no motion in print and no motion required to understand success or error.
-- Imagery/iconography: reuse the ANP logo. Use an existing installed icon source only when available; text labels remain mandatory for primary and destructive actions.
+- Imagery/iconography: use the AIO Roadmap Studio icon in non-print product chrome; preserve the ANP logo only inside the printable client document. Text labels remain mandatory for primary and destructive actions.
 
 ## Components
 
@@ -91,10 +91,10 @@
 - New/changed components:
   - `SavedRoadmapLibrary` reusing the existing list, notice, and action styles.
   - `WorkspaceModeSwitch` for `로드맵 편집` / `사업 카탈로그`.
-  - `CatalogToolbar` with a minimal search input and secondary `새 사업 등록` action.
+  - `CatalogToolbar` with keyword, category, industry, and region filters plus the secondary `새 사업 등록` action.
   - `CatalogList` and `CatalogRow` using lightweight row separation.
   - `CatalogForm` for explicit create/edit mode, not the catalog default.
-  - New-business `CatalogForm` is text-first: one agreed-format textarea, inline source-text errors, then searchable multi-select industry and region tags. It parses only on registration and never shows a parsed-result review or individual creation fields.
+  - New-business `CatalogForm` is text-first: one agreed-format textarea, inline source-text errors, then searchable multi-select industry and region tags. A missing industry or region can be added as an immediately persisted public option from its picker. It parses only on registration and never shows a parsed-result review or individual creation fields.
   - Existing-business editing retains the current individual editable fields and tag selectors.
   - Inline catalog status feedback with a route back to roadmap editing.
 - Variants and states:
@@ -139,6 +139,7 @@
 - Disabled: state why an action is unavailable; do not use disabled styling as the only explanation.
 - Offline/slow network: do not claim a shared write succeeded until the server confirms it; the roadmap remains locally usable during catalog failure.
 - New-business parse errors: keep the source text and tag selections in place, show actionable feedback immediately below the textarea, and do not issue a create request until the source format is valid.
+- New industry/region options: persist when the inline add action succeeds, independently of later business registration. Keep a successful option after registration cancellation or failure; on option failure, preserve the source text and existing selections.
 
 ## Content voice
 
@@ -154,7 +155,7 @@
 
 - Framework/styling system: React 19, Vite, and the existing plain CSS architecture.
 - Design-token constraints: reuse existing colors, fonts, spacing, radii, and print rules before adding values.
-- Performance constraints: long catalogs require bounded rendering/pagination or an equally simple server query; do not load unbounded rich detail into every visible row.
+- Performance constraints: long catalogs require bounded rendering/pagination or an equally simple server query; apply active keyword, category, industry, and region filters before pagination and do not load unbounded rich detail into every visible row.
 - Compatibility constraints:
   - Preserve `.openai/hosting.json`, `worker/index.js`, `scripts/prepare-sites-build.mjs`, and `tests/sites-worker.test.mjs` contracts.
   - Use the existing Sites D1 capability through a logical `DB` binding for central structured persistence. Sites owns the deployed database resource and binding.
@@ -169,13 +170,15 @@
 
 - Storage: one D1 table for catalog masters. Do not add browser storage, an external data service, an ORM, or a generic repository layer.
 - API surface:
-  - `GET /api/catalog-programs?q=&limit=&offset=` returns a bounded page and total count.
+  - `GET /api/catalog-programs?q=&category=&industry=&region=&limit=&offset=` returns a bounded filtered page and total count. Repeated industry values use OR, repeated region values use OR, and active dimensions combine with AND.
   - `POST /api/catalog-programs` creates a master.
   - `PUT /api/catalog-programs/:id` replaces the editable master fields.
   - `DELETE /api/catalog-programs/:id` deletes only the master.
+  - `GET /api/catalog-options` returns shared industry and region choices.
+  - `POST /api/catalog-options` immediately creates one shared industry or region choice.
 - Pagination: default 50 records, maximum 100, newest updates first, with simple previous/next controls. This is sufficient for the expected MVP catalog size; replace offset pagination only if measured scale makes it necessary.
-- Validation boundary: accept only the agreed fields; require a known roadmap category, non-empty title/target/details, an `http` or `https` link, a null amount or safe integer KRW amount of at least 1,000,000, and inclusive months from 1 through 12 with start not after end. Industry and region are optional arrays containing only the exact workbook-derived values; both allow multiple selections. Enforce concise field length limits in both API validation and the database schema where practical.
-- Tag storage/filtering: store industry and region selections as JSON arrays on each catalog master. Tag-based catalog filtering is outside the current MVP and should be added only when requested.
+- Validation boundary: accept only the agreed fields; require a known roadmap category, non-empty title/target/details, an `http` or `https` link, a null amount or safe integer KRW amount of at least 1,000,000, and inclusive months from 1 through 12 with start not after end. Industry and region are optional arrays containing only shared workbook-derived or dynamically created values; both allow multiple selections. Trim new values, bound their length, and prevent exact duplicates at the API/database boundary.
+- Tag storage/filtering: store industry and region selections as JSON arrays on each catalog master. Filter the complete catalog server-side before pagination, using OR within each tag dimension and AND across active dimensions. Keep the workbook-derived arrays as the initial shared choices and persist only newly added values in D1.
 - Identity: generate a new catalog ID on create and a different new roadmap-program ID on copy. Never store a live master reference in the roadmap copy.
 - Concurrency: use normal request-level last-write-wins semantics for this unauthenticated MVP. Return explicit not-found, validation, and server errors; do not add conflict-resolution UI.
 - Initialization: keep the schema and one idempotent KIMST/SCCEI seed migration in the repository. Do not create production resources or credentials from application code.

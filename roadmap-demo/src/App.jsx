@@ -74,13 +74,28 @@ function FieldError({ errors, name }) {
   return errors?.[name] ? <small className="field-error">{errors[name]}</small> : null;
 }
 
-function TagPicker({ label, options, value = [], onChange }) {
+function TagPicker({ label, options, value = [], onChange, onCreate }) {
   const [query, setQuery] = useState("");
+  const [createState, setCreateState] = useState({ status: "idle", error: "", message: "" });
   const selected = Array.isArray(value) ? value : [];
-  const filtered = options.filter((option) => option.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const normalizedQuery = query.trim();
+  const filtered = options.filter((option) => option.toLocaleLowerCase().includes(normalizedQuery.toLocaleLowerCase()));
+  const hasExactMatch = options.includes(normalizedQuery);
   const toggle = (option) => onChange(selected.includes(option)
     ? selected.filter((item) => item !== option)
     : [...selected, option]);
+  const createOption = async () => {
+    if (!normalizedQuery || createState.status === "saving") return;
+    setCreateState({ status: "saving", error: "", message: "" });
+    try {
+      const option = await onCreate(normalizedQuery);
+      if (!selected.includes(option)) onChange([...selected, option]);
+      setQuery("");
+      setCreateState({ status: "idle", error: "", message: `“${option}”을 공용 선택지로 추가했습니다.` });
+    } catch (error) {
+      setCreateState({ status: "error", error: error.message || "공용 선택지를 추가하지 못했습니다.", message: "" });
+    }
+  };
 
   return (
     <fieldset className="tag-picker">
@@ -92,7 +107,17 @@ function TagPicker({ label, options, value = [], onChange }) {
           ))}
         </div>
       ) : <p className="tag-picker__empty">선택된 항목이 없습니다.</p>}
-      <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${label} 검색`} aria-label={`${label} 검색`} />
+      <input type="search" value={query} onChange={(event) => {
+        setQuery(event.target.value);
+        if (createState.error || createState.message) setCreateState({ status: "idle", error: "", message: "" });
+      }} placeholder={`${label} 검색`} aria-label={`${label} 검색`} />
+      {onCreate && normalizedQuery && !hasExactMatch ? (
+        <button type="button" className="tag-picker__create" onClick={createOption} disabled={createState.status === "saving"}>
+          {createState.status === "saving" ? "추가 중" : `“${normalizedQuery}” 공용 선택지로 추가`}
+        </button>
+      ) : null}
+      {createState.error ? <p className="tag-picker__status tag-picker__status--error" role="alert">{createState.error}</p> : null}
+      {createState.message ? <p className="tag-picker__status" role="status">{createState.message}</p> : null}
       <div className="tag-picker__options">
         {filtered.map((option) => (
           <label key={option}>
@@ -106,7 +131,7 @@ function TagPicker({ label, options, value = [], onChange }) {
   );
 }
 
-function CatalogForm({ form, state, onChange, onCancel, onDirty, onSubmit }) {
+function CatalogForm({ form, state, options, onChange, onCancel, onCreateOption, onDirty, onSubmit }) {
   const [importText, setImportText] = useState("");
   const [importErrors, setImportErrors] = useState([]);
   const values = form.values;
@@ -168,8 +193,20 @@ function CatalogForm({ form, state, onChange, onCancel, onDirty, onSubmit }) {
       ) : null}
 
       <div className="catalog-tag-pickers">
-        <TagPicker label="업종" options={INDUSTRY_OPTIONS} value={values.industries} onChange={(next) => change("industries", next)} />
-        <TagPicker label="지역" options={REGION_OPTIONS} value={values.regions} onChange={(next) => change("regions", next)} />
+        <TagPicker
+          label="업종"
+          options={options.industries}
+          value={values.industries}
+          onChange={(next) => change("industries", next)}
+          onCreate={form.mode === "create" ? (value) => onCreateOption("industry", value) : null}
+        />
+        <TagPicker
+          label="지역"
+          options={options.regions}
+          value={values.regions}
+          onChange={(next) => change("regions", next)}
+          onCreate={form.mode === "create" ? (value) => onCreateOption("region", value) : null}
+        />
       </div>
       <FieldError errors={state.fields} name="industries" />
       <FieldError errors={state.fields} name="regions" />
@@ -245,6 +282,14 @@ export function App() {
   const [catalogSearch, setCatalogSearch] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogCategory, setCatalogCategory] = useState(ROADMAP_CATEGORIES[0].key);
+  const [catalogIndustries, setCatalogIndustries] = useState([]);
+  const [catalogRegions, setCatalogRegions] = useState([]);
+  const [catalogOptions, setCatalogOptions] = useState({
+    status: "idle",
+    industries: [...INDUSTRY_OPTIONS],
+    regions: [...REGION_OPTIONS],
+    error: "",
+  });
   const [catalogOffset, setCatalogOffset] = useState(0);
   const [catalogRefresh, setCatalogRefresh] = useState(0);
   const [catalogForm, setCatalogForm] = useState(null);
@@ -311,11 +356,30 @@ export function App() {
   useEffect(() => {
     if (screen !== "editor" || mode !== "catalog") return undefined;
     const controller = new AbortController();
+    setCatalogOptions((current) => ({ ...current, status: current.status === "idle" ? "loading" : "refreshing", error: "" }));
+    fetch("/api/catalog-options", { signal: controller.signal, headers: { accept: "application/json" } })
+      .then(async (response) => {
+        const data = await readApiJson(response);
+        if (!response.ok) throw new Error(data.error || "업종·지역 목록을 불러오지 못했습니다.");
+        return data;
+      })
+      .then((data) => setCatalogOptions({ status: "ready", industries: data.industries, regions: data.regions, error: "" }))
+      .catch((error) => {
+        if (error.name !== "AbortError") setCatalogOptions((current) => ({ ...current, status: "error", error: error.message }));
+      });
+    return () => controller.abort();
+  }, [screen, mode]);
+
+  useEffect(() => {
+    if (screen !== "editor" || mode !== "catalog") return undefined;
+    const controller = new AbortController();
     setCatalog((current) => ({ ...current, status: current.items.length ? "refreshing" : "loading", error: "" }));
 
     const params = new URLSearchParams({ limit: "50", offset: String(catalogOffset) });
     if (catalogQuery) params.set("q", catalogQuery);
     params.set("category", catalogCategory);
+    catalogIndustries.forEach((value) => params.append("industry", value));
+    catalogRegions.forEach((value) => params.append("region", value));
     fetch(`/api/catalog-programs?${params}`, { signal: controller.signal, headers: { accept: "application/json" } })
       .then(async (response) => {
         const data = await readApiJson(response);
@@ -328,7 +392,7 @@ export function App() {
       });
 
     return () => controller.abort();
-  }, [screen, mode, catalogQuery, catalogCategory, catalogOffset, catalogRefresh]);
+  }, [screen, mode, catalogQuery, catalogCategory, catalogIndustries, catalogRegions, catalogOffset, catalogRefresh]);
 
   const startNewRoadmap = () => {
     const blank = { clientName: "", programs: [] };
@@ -519,6 +583,22 @@ export function App() {
     }
   };
 
+  const createCatalogOption = async (kind, value) => {
+    const response = await fetch("/api/catalog-options", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ kind, value }),
+    });
+    const data = await readApiJson(response);
+    if (!response.ok) throw new Error(data.error || "공용 선택지를 추가하지 못했습니다.");
+    const key = kind === "industry" ? "industries" : "regions";
+    setCatalogOptions((current) => ({
+      ...current,
+      [key]: [...new Set([...current[key], data.item.value])].sort((left, right) => left.localeCompare(right, "ko")),
+    }));
+    return data.item.value;
+  };
+
   const deleteCatalogProgram = async (program) => {
     if (!window.confirm(`“${program.title}”을 사업 카탈로그에서 삭제할까요? 기존 로드맵 복사본은 유지됩니다.`)) return;
     setDeletingId(program.id);
@@ -608,15 +688,19 @@ export function App() {
   )));
   const canGoBack = catalogOffset > 0;
   const canGoForward = catalogOffset + catalog.items.length < catalog.total;
+  const hasCatalogFilters = Boolean(catalogQuery || catalogIndustries.length || catalogRegions.length);
   const activePrograms = document.programs.filter((program) => program.category === activeCategory);
   const draggingProgram = document.programs.find((program) => program.id === draggingProgramId);
 
   return (
     <>
       <div className="preview-toolbar no-print">
-        <div>
-          <strong>ANP 연간 로드맵 제작</strong>
-          <span>{mode === "roadmap" ? "A4 가로 · 1페이지 PDF 기준" : "공유 사업 카탈로그 관리"}</span>
+        <div className="preview-toolbar__brand">
+          <img className="product-brand-icon" src="/assets/aio-roadmap-studio-icon.png" alt="" />
+          <div>
+            <strong>AIO Roadmap Studio</strong>
+            <span>{mode === "roadmap" ? "A4 가로 · 1페이지 PDF 기준" : "공유 사업 카탈로그 관리"}</span>
+          </div>
         </div>
         <div className="preview-toolbar__actions">
           <button type="button" onClick={showRoadmapLibrary} disabled={roadmapMutation.status === "saving" || catalogMutation.status === "saving"}>로드맵 목록</button>
@@ -764,11 +848,13 @@ export function App() {
             <CatalogForm
               form={catalogForm}
               state={catalogMutation}
+              options={catalogOptions}
               onChange={(values) => setCatalogForm((current) => ({ ...current, values }))}
               onCancel={() => {
                 setCatalogForm(null);
                 setCatalogFormDirty(false);
               }}
+              onCreateOption={createCatalogOption}
               onDirty={() => setCatalogFormDirty(true)}
               onSubmit={saveCatalog}
             />
@@ -796,6 +882,29 @@ export function App() {
                 ))}
               </nav>
 
+              <section className="catalog-filters" aria-label="업종 및 지역 필터">
+                <TagPicker label="업종 필터" options={catalogOptions.industries} value={catalogIndustries} onChange={(next) => {
+                  setCatalogIndustries(next);
+                  setCatalogOffset(0);
+                }} />
+                <TagPicker label="지역 필터" options={catalogOptions.regions} value={catalogRegions} onChange={(next) => {
+                  setCatalogRegions(next);
+                  setCatalogOffset(0);
+                }} />
+              </section>
+              {catalogIndustries.length || catalogRegions.length ? (
+                <div className="catalog-filter-actions">
+                  <span>선택한 업종 중 하나와 선택한 지역 중 하나를 모두 만족하는 사업을 찾습니다.</span>
+                  <button type="button" className="button-tertiary" onClick={() => {
+                    setCatalogIndustries([]);
+                    setCatalogRegions([]);
+                    setCatalogOffset(0);
+                  }}>업종·지역 초기화</button>
+                </div>
+              ) : null}
+
+              {catalogOptions.error ? <p className="catalog-notice catalog-notice--error" role="alert">{catalogOptions.error}</p> : null}
+
               {catalogNotice ? (
                 <div className={`catalog-notice catalog-notice--${catalogNotice.tone}`} role="status" aria-live="polite">
                   <span>{catalogNotice.message}</span>
@@ -814,8 +923,8 @@ export function App() {
                 {catalog.status === "loading" ? <p className="catalog-state" role="status">저장된 사업을 불러오는 중입니다.</p> : null}
                 {catalog.status !== "loading" && !catalog.items.length && !catalog.error ? (
                   <div className="catalog-state">
-                    <strong>{catalogQuery ? "검색 결과가 없습니다." : "아직 등록된 사업이 없습니다."}</strong>
-                    <span>{catalogQuery ? "검색어를 바꾸거나 전체 목록을 확인해 주세요." : "새 사업 등록으로 첫 사업을 저장해 주세요."}</span>
+                    <strong>{hasCatalogFilters ? "필터 결과가 없습니다." : "아직 등록된 사업이 없습니다."}</strong>
+                    <span>{hasCatalogFilters ? "검색어나 업종·지역 조건을 바꿔 주세요." : "새 사업 등록으로 첫 사업을 저장해 주세요."}</span>
                   </div>
                 ) : null}
                 {catalog.items.map((program) => (

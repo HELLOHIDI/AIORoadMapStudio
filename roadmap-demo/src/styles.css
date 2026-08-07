@@ -80,6 +80,18 @@ button {
   gap: 2px;
 }
 
+.preview-toolbar .preview-toolbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.product-brand-icon {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
 .preview-toolbar .preview-toolbar__actions {
   display: flex;
   gap: 8px;
@@ -178,6 +190,23 @@ button {
 
 .catalog-category-tabs {
   margin-top: 12px;
+}
+
+.catalog-filters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.catalog-filter-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  color: #606775;
+  font-size: 12px;
 }
 
 .workspace-switch button:focus-visible,
@@ -764,6 +793,32 @@ button {
   cursor: pointer;
 }
 
+.tag-picker__create {
+  width: 100%;
+  min-height: 34px;
+  margin-top: 7px;
+  border: 1px dashed #5b9bd5;
+  border-radius: 6px;
+  color: #294f98;
+  background: #f4f8fd;
+  cursor: pointer;
+}
+
+.tag-picker__create:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.tag-picker__status {
+  margin: 7px 0 0;
+  color: #1f6536;
+  font-size: 12px;
+}
+
+.tag-picker__status--error {
+  color: #8a2020;
+}
+
 .tag-picker__empty {
   margin: 0 0 9px;
   color: #7a818e;
@@ -866,6 +921,10 @@ button {
   }
 
   .catalog-tag-pickers {
+    grid-template-columns: 1fr;
+  }
+
+  .catalog-filters {
     grid-template-columns: 1fr;
   }
 
