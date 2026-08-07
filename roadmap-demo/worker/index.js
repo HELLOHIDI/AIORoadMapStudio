@@ -95,14 +95,10 @@ function validateCatalogProgramWithOptions(input, options) {
 async function catalogOptionSets(db) {
   const industries = new Set(INDUSTRY_OPTIONS);
   const regions = new Set(REGION_OPTIONS);
-  try {
-    const rows = await db.prepare("SELECT kind, value FROM catalog_options ORDER BY kind, value").bind().all();
-    for (const row of rows.results ?? []) {
-      if (row.kind === "industry") industries.add(row.value);
-      if (row.kind === "region") regions.add(row.value);
-    }
-  } catch (error) {
-    if (!String(error?.message ?? error).includes("catalog_options")) throw error;
+  const rows = await db.prepare("SELECT kind, value FROM catalog_options ORDER BY kind, value").bind().all();
+  for (const row of rows.results ?? []) {
+    if (row.kind === "industry") industries.add(row.value);
+    if (row.kind === "region") regions.add(row.value);
   }
   return { industries, regions };
 }

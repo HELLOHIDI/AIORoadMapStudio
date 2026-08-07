@@ -74,7 +74,7 @@ function FieldError({ errors, name }) {
   return errors?.[name] ? <small className="field-error">{errors[name]}</small> : null;
 }
 
-function TagPicker({ label, options, value = [], onChange, onCreate }) {
+function TagPicker({ label, options, value = [], onChange, onCreate, collapsible = false }) {
   const [query, setQuery] = useState("");
   const [createState, setCreateState] = useState({ status: "idle", error: "", message: "" });
   const selected = Array.isArray(value) ? value : [];
@@ -97,9 +97,9 @@ function TagPicker({ label, options, value = [], onChange, onCreate }) {
     }
   };
 
-  return (
-    <fieldset className="tag-picker">
-      <legend>{label} <small>복수 선택</small></legend>
+  const picker = (
+    <fieldset className="tag-picker" aria-label={collapsible ? `${label} 복수 선택` : undefined}>
+      <legend hidden={collapsible}>{label} <small>복수 선택</small></legend>
       {selected.length ? (
         <div className="tag-picker__selected" aria-label={`선택한 ${label}`}>
           {selected.map((option) => (
@@ -128,6 +128,17 @@ function TagPicker({ label, options, value = [], onChange, onCreate }) {
         {!filtered.length ? <p>검색 결과가 없습니다.</p> : null}
       </div>
     </fieldset>
+  );
+
+  if (!collapsible) return picker;
+  return (
+    <details className="tag-picker-disclosure">
+      <summary>
+        <span>{label}</span>
+        <span className="tag-picker-disclosure__count">{selected.length ? `${selected.length}개 선택` : "선택 안 함"}</span>
+      </summary>
+      {picker}
+    </details>
   );
 }
 
@@ -285,7 +296,6 @@ export function App() {
   const [catalogIndustries, setCatalogIndustries] = useState([]);
   const [catalogRegions, setCatalogRegions] = useState([]);
   const [catalogOptions, setCatalogOptions] = useState({
-    status: "idle",
     industries: [...INDUSTRY_OPTIONS],
     regions: [...REGION_OPTIONS],
     error: "",
@@ -356,16 +366,16 @@ export function App() {
   useEffect(() => {
     if (screen !== "editor" || mode !== "catalog") return undefined;
     const controller = new AbortController();
-    setCatalogOptions((current) => ({ ...current, status: current.status === "idle" ? "loading" : "refreshing", error: "" }));
+    setCatalogOptions((current) => ({ ...current, error: "" }));
     fetch("/api/catalog-options", { signal: controller.signal, headers: { accept: "application/json" } })
       .then(async (response) => {
         const data = await readApiJson(response);
         if (!response.ok) throw new Error(data.error || "업종·지역 목록을 불러오지 못했습니다.");
         return data;
       })
-      .then((data) => setCatalogOptions({ status: "ready", industries: data.industries, regions: data.regions, error: "" }))
+      .then((data) => setCatalogOptions({ industries: data.industries, regions: data.regions, error: "" }))
       .catch((error) => {
-        if (error.name !== "AbortError") setCatalogOptions((current) => ({ ...current, status: "error", error: error.message }));
+        if (error.name !== "AbortError") setCatalogOptions((current) => ({ ...current, error: error.message }));
       });
     return () => controller.abort();
   }, [screen, mode]);
@@ -883,11 +893,11 @@ export function App() {
               </nav>
 
               <section className="catalog-filters" aria-label="업종 및 지역 필터">
-                <TagPicker label="업종 필터" options={catalogOptions.industries} value={catalogIndustries} onChange={(next) => {
+                <TagPicker collapsible label="업종 필터" options={catalogOptions.industries} value={catalogIndustries} onChange={(next) => {
                   setCatalogIndustries(next);
                   setCatalogOffset(0);
                 }} />
-                <TagPicker label="지역 필터" options={catalogOptions.regions} value={catalogRegions} onChange={(next) => {
+                <TagPicker collapsible label="지역 필터" options={catalogOptions.regions} value={catalogRegions} onChange={(next) => {
                   setCatalogRegions(next);
                   setCatalogOffset(0);
                 }} />

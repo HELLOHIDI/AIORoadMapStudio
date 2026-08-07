@@ -195,8 +195,39 @@ button {
 .catalog-filters {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  align-items: start;
   gap: 14px;
   margin-top: 14px;
+}
+
+.tag-picker-disclosure {
+  min-width: 0;
+  border: 1px solid #dfe3ea;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.tag-picker-disclosure summary {
+  padding: 12px;
+  color: #363b46;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tag-picker-disclosure__count {
+  float: right;
+  color: #6c7280;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.tag-picker-disclosure[open] summary {
+  border-bottom: 1px solid #dfe3ea;
+}
+
+.tag-picker-disclosure > .tag-picker {
+  border: 0;
 }
 
 .catalog-filter-actions {

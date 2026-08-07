@@ -48,7 +48,11 @@ test("keeps shared tag creation and catalog filters wired to the server", () => 
   assert.ok(app.includes('params.append("region", value)'));
   assert.ok(app.includes('onCreate={form.mode === "create"'));
   assert.ok(app.includes('“${normalizedQuery}” 공용 선택지로 추가'));
+  assert.match(app, /<TagPicker collapsible label="업종 필터"/);
+  assert.match(app, /<TagPicker collapsible label="지역 필터"/);
+  assert.ok(app.includes('<details className="tag-picker-disclosure">'));
   assert.match(styles, /\.catalog-filters\s*\{/);
+  assert.match(styles, /\.tag-picker-disclosure\s*\{/);
   assert.match(styles, /\.tag-picker__create\s*\{/);
 });
 
