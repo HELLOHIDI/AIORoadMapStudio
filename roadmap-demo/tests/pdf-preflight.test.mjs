@@ -44,9 +44,32 @@ test("passes a valid document only in the pinned PDF runtime", async () => {
   assert.equal(result.ok, true);
   assert.deepEqual(result.errors, []);
 
+  const standard = await runPdfPreflight({
+    roadmapDocument: { ...validDocument, tier: "standard" },
+    root: fakeRoot(),
+    navigatorLike: supportedNavigator,
+  });
+  assert.equal(standard.ok, true);
+  assert.deepEqual(standard.errors, []);
+
   const blocked = await runPdfPreflight({ roadmapDocument: validDocument, root: fakeRoot(), navigatorLike: { userAgent: "Firefox/150" } });
   assert.equal(blocked.ok, false);
   assert.ok(blocked.errors.some(({ code }) => code === "E_PDF_RUNTIME"));
+});
+
+test("blocks Standard certification before PDF output", async () => {
+  const result = await runPdfPreflight({
+    roadmapDocument: {
+      tier: "standard",
+      clientName: "standard",
+      programs: [{ id: "cert", category: "certification", title: "certification", startMonth: 1, endMonth: 1, amountKrw: null, sequence: 0 }],
+    },
+    root: fakeRoot(),
+    navigatorLike: supportedNavigator,
+  });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some(({ code, programId }) => code === "E_CATEGORY_FORBIDDEN_FOR_TIER" && programId === "cert"));
 });
 
 test("blocks missing fonts, assets, page overflow, and visual collision", async () => {

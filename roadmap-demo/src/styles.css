@@ -137,6 +137,18 @@ button {
   font-size: 11px;
 }
 
+.pptx-export-status {
+  width: min(1120px, calc(100% - 32px));
+  margin: 6px auto 0;
+  color: #1f6536;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pptx-export-status--error {
+  color: #8a2020;
+}
+
 .workspace-switch {
   display: flex;
   width: min(1120px, calc(100% - 32px));
@@ -190,6 +202,65 @@ button {
 
 .catalog-category-tabs {
   margin-top: 12px;
+}
+
+.tier-choice {
+  display: grid;
+  place-items: start center;
+  min-height: 100vh;
+  padding: 56px 16px;
+}
+
+.tier-choice__panel {
+  display: grid;
+  gap: 18px;
+  width: min(520px, 100%);
+  padding: 22px;
+  border: 1px solid #d7dbe3;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 8px 28px rgb(18 30 55 / 8%);
+}
+
+.tier-choice h1 {
+  margin: 0;
+  color: #071951;
+  font-size: 20px;
+}
+
+.tier-choice h1:focus {
+  outline: 0;
+}
+
+.tier-choice p {
+  margin: 6px 0 0;
+  color: #606775;
+  font-size: 14px;
+}
+
+.tier-choice__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.tier-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 22px;
+  margin: 0;
+  padding: 3px 8px;
+  border: 1px solid #cbd0da;
+  border-radius: 999px;
+  color: #33405c;
+  background: #eef1f6;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tier-badge--editor {
+  margin: -4px 0 12px;
 }
 
 .catalog-filters {
@@ -607,8 +678,9 @@ button {
   margin: 8px 0 0;
 }
 
-.catalog-row__meta div {
+.catalog-row__meta > div {
   display: flex;
+  align-items: center;
   gap: 7px;
 }
 
@@ -721,6 +793,10 @@ button {
   display: flex;
   align-items: start;
   gap: 7px;
+}
+
+.catalog-row--roadmap .catalog-row__actions {
+  align-self: center;
 }
 
 .catalog-pagination {
@@ -943,6 +1019,11 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .catalog-row--roadmap {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
   .catalog-row__actions {
     display: flex;
   }
@@ -968,6 +1049,7 @@ button {
   .preview-toolbar,
   .workspace-switch,
   .print-profile,
+  .pptx-export-status,
   .authoring-panel,
   .catalog-panel,
   .roadmap-save-status {
@@ -1022,6 +1104,15 @@ button {
 
   .catalog-row__actions .button-primary {
     flex-basis: 100%;
+  }
+
+  .catalog-row--roadmap {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .catalog-row--roadmap .catalog-row__actions {
+    align-self: auto;
   }
 }
 
@@ -1146,6 +1237,12 @@ button {
   grid-template-columns: 21mm 1fr;
 }
 
+/* A composer may overlap later sections in the roadmap grid. Raise its section,
+   not only the event, so a sibling section cannot paint over the form. */
+.roadmap-section:has(.feedback-composer) {
+  z-index: 10;
+}
+
 .roadmap-section__label {
   display: grid;
   place-items: center;
@@ -1196,17 +1293,41 @@ button {
   cursor: grab;
 }
 
+.roadmap-event--selected,
+.roadmap-event--composer-open {
+  z-index: 8;
+}
+
 .roadmap-event--dragging {
   cursor: grabbing;
   opacity: 0.55;
 }
 
-.roadmap-event:focus-visible {
+.roadmap-event__main {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: grab;
+  font: inherit;
+  text-align: left;
+}
+
+.roadmap-event--dragging .roadmap-event__main {
+  cursor: grabbing;
+}
+
+.roadmap-event__main:focus-visible,
+.roadmap-event--selected .roadmap-event__main {
   outline: 1.5pt solid #071951;
   outline-offset: 1pt;
 }
 
 .roadmap-event__copy {
+  display: block;
   height: 8.6pt;
   padding-left: 0.5pt;
   overflow: visible;
@@ -1230,6 +1351,7 @@ button {
 }
 
 .roadmap-event__bar {
+  display: block;
   width: 100%;
   height: 0.21cm;
   border-radius: 999px;
@@ -1250,6 +1372,339 @@ button {
 
 .roadmap-event--certification .roadmap-event__bar {
   background: #70ad47;
+}
+
+.roadmap-event__feedback-indicator {
+  position: absolute;
+  right: -2px;
+  bottom: -17px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 2px 6px;
+  border: 1px solid #b8c2d9;
+  border-radius: 999px;
+  color: #071951;
+  background: #fff;
+  box-shadow: 0 3px 8px rgb(7 25 81 / 16%);
+  font-family: "NanumSquare AC", sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  transform: translateY(-2px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.roadmap-event:hover .roadmap-event__feedback-indicator,
+.roadmap-event:focus-within .roadmap-event__feedback-indicator,
+.roadmap-event--selected .roadmap-event__feedback-indicator {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.roadmap-event__feedback-indicator--unresolved {
+  border-color: #e6a625;
+  color: #7b4d00;
+  background: #fff8e6;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.feedback-composer {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 20px);
+  left: 0;
+  display: grid;
+  gap: 8px;
+  width: 300px;
+  padding: 14px;
+  border: 1px solid #d7dbe3;
+  border-radius: 10px;
+  color: #181b22;
+  background: #fff;
+  box-shadow: 0 14px 34px rgb(18 30 55 / 24%);
+  font-family: "NanumSquare AC", sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.feedback-composer--above {
+  top: auto;
+  bottom: calc(100% + 20px);
+}
+
+.feedback-composer strong {
+  color: #071951;
+  font-size: 13px;
+}
+
+.feedback-composer p {
+  margin: 0;
+  color: #606775;
+}
+
+.feedback-composer textarea,
+.feedback-composer input,
+.feedback-auth input,
+.feedback-review textarea {
+  width: 100%;
+  border: 1px solid #cbd0da;
+  border-radius: 7px;
+  color: #181b22;
+  background: #fff;
+  font: inherit;
+}
+
+.feedback-composer textarea,
+.feedback-review textarea {
+  min-height: 84px;
+  padding: 9px 10px;
+  resize: vertical;
+}
+
+.feedback-composer input,
+.feedback-auth input {
+  min-height: 36px;
+  padding: 7px 10px;
+}
+
+.feedback-composer textarea:focus,
+.feedback-composer input:focus,
+.feedback-auth input:focus,
+.feedback-review textarea:focus {
+  border-color: #5b9bd5;
+  outline: 3px solid rgb(91 155 213 / 18%);
+}
+
+.feedback-composer .button-primary {
+  justify-self: end;
+}
+
+.feedback-session-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #456220;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.feedback-session-status button {
+  padding: 0;
+  border: 0;
+  color: #485365;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.feedback-session-status button:hover,
+.feedback-session-status button:focus-visible {
+  color: #071951;
+}
+
+.feedback-load-error {
+  width: min(1120px, calc(100% - 32px));
+  margin: 12px auto 0;
+}
+
+.feedback-panel {
+  position: fixed;
+  z-index: 30;
+  top: 16px;
+  right: 0;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  width: min(420px, 38vw);
+  padding: 22px;
+  overflow: auto;
+  border: 1px solid #d7dbe3;
+  border-right: 0;
+  border-radius: 14px 0 0 14px;
+  color: #181b22;
+  background: #fff;
+  box-shadow: -18px 0 50px rgb(18 30 55 / 18%);
+  animation: feedback-panel-in 180ms ease-out;
+}
+
+@keyframes feedback-panel-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.feedback-panel__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e3e6ec;
+}
+
+.feedback-panel__heading span {
+  color: #6c7280;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.feedback-panel__heading h2 {
+  margin: 5px 0 0;
+  color: #071951;
+  font-size: 18px;
+  line-height: 1.35;
+}
+
+.feedback-panel__heading h2:focus {
+  outline: 0;
+}
+
+.feedback-panel__close {
+  min-width: 52px;
+  min-height: 34px;
+  border: 1px solid #cbd0da;
+  border-radius: 6px;
+  color: #4f5664;
+  background: #fff;
+  cursor: pointer;
+}
+
+.feedback-status {
+  align-self: flex-start;
+  margin: 16px 0 8px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.feedback-status--needs_changes {
+  color: #7b4d00;
+  background: #fff3cd;
+}
+
+.feedback-status--completed {
+  color: #1b4f72;
+  background: #e8f2fb;
+}
+
+.feedback-status--resolved {
+  color: #1f6536;
+  background: #e8f6ed;
+}
+
+.feedback-timeline {
+  display: grid;
+  gap: 0;
+  margin: 8px 0 20px;
+  padding: 0;
+  list-style: none;
+}
+
+.feedback-timeline__item {
+  padding: 14px 0 14px 12px;
+  border-left: 2px solid #5b9bd5;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.feedback-timeline__item--completed,
+.feedback-timeline__item--resolved {
+  border-left-color: #2f9e5b;
+}
+
+.feedback-timeline__item > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.feedback-timeline__item strong {
+  color: #2f3541;
+  font-size: 13px;
+}
+
+.feedback-timeline__item time {
+  color: #858b96;
+  font-size: 11px;
+}
+
+.feedback-timeline__item p {
+  margin: 7px 0 0;
+  color: #363b46;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.feedback-error {
+  margin: 0;
+  color: #9b2525;
+  font-size: 12px;
+}
+
+.feedback-auth,
+.feedback-review {
+  display: grid;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid #e3e6ec;
+}
+
+.feedback-panel > .feedback-session-status {
+  padding: 12px 0;
+  border-top: 1px solid #e3e6ec;
+}
+
+.feedback-auth label,
+.feedback-review label {
+  display: grid;
+  gap: 7px;
+  color: #363b46;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.feedback-panel__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+@media (max-width: 860px) {
+  .feedback-panel {
+    top: auto;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: 72vh;
+    border: 1px solid #d7dbe3;
+    border-bottom: 0;
+    border-radius: 16px 16px 0 0;
+    animation-name: feedback-panel-up;
+  }
+
+  @keyframes feedback-panel-up {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feedback-panel,
+  .roadmap-event__feedback-indicator {
+    animation: none;
+    transition: none;
+  }
 }
 
 .sheet-notes {
@@ -1297,6 +1752,10 @@ button {
 
   .roadmap-lane[data-drop-state] {
     background: transparent;
+    outline: 0;
+  }
+
+  .roadmap-event--selected .roadmap-event__main {
     outline: 0;
   }
 

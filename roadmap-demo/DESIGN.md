@@ -3,9 +3,9 @@
 ## Source of truth
 
 - Status: Active
-- Last refreshed: 2026-08-06
-- Primary product surfaces: shared saved-roadmap library, desktop roadmap authoring, shared support-program catalog, A4 landscape roadmap preview and print output
-- Evidence reviewed: `AGENTS.md`, `src/App.jsx`, `src/styles.css`, `src/roadmap-policy.js`, `src/pdf-preflight.js`, `public/assets/anp-consulting-logo.png`, the running 1440x1024 authoring screen, `.omx/specs/deep-interview-business-registration.md`, `.omx/specs/deep-interview-roadmap-saving.md`, `업종별_지역별_개별속성_중복제거.xlsx`
+- Last refreshed: 2026-08-10
+- Primary product surfaces: shared saved-roadmap library, desktop roadmap authoring, shared support-program catalog, A4 landscape roadmap preview, PDF print output, and native editable PPTX export
+- Evidence reviewed: `AGENTS.md`, `src/App.jsx`, `src/styles.css`, `src/roadmap-policy.js`, `src/pdf-preflight.js`, `public/assets/anp-consulting-logo.png`, the running 1440x1024 authoring screen, `.omx/specs/deep-interview-business-registration.md`, `.omx/specs/deep-interview-roadmap-saving.md`, `.omx/specs/deep-interview-roadmap-bar-feedback.md`, the user-approved inline-composer/right-inspector mock, `업종별_지역별_개별속성_중복제거.xlsx`
 - Governance: this file defines product and UI/UX policy. Generated mockups are exploratory until the user explicitly approves one; they do not override this file.
 
 ## Brand
@@ -21,9 +21,11 @@
   - Let users reuse a centrally managed catalog of support programs.
   - Make selecting a catalog program faster than retyping a roadmap row.
   - Keep catalog masters independent from client-specific roadmap copies.
-  - Keep the existing roadmap validation, preview, and PDF workflow intact.
+  - Keep the existing roadmap validation, preview, and PDF workflow intact while offering a parallel native editable PPTX download.
+  - Let a team lead attach a modification request to an exact roadmap bar and track it through assignee completion to team-lead resolution.
 - Non-goals:
-  - Login, administrator permissions, approval, moderation, or feedback in the MVP.
+  - Personal accounts, named attribution, per-person permissions, or a general approval/moderation platform.
+  - Replies, mentions, attachments, notifications, comment editing/deletion, priority, due dates, or real-time collaboration.
   - Automatic notice crawling or metadata extraction.
   - Site-wide navigation redesign or a new multi-page information architecture.
   - Redesigning the A4 landscape document.
@@ -43,6 +45,7 @@
   - Select relevant programs for a client.
   - Adjust copied amounts and periods for that client without changing the shared master.
   - Validate and print a one-page roadmap.
+  - Request a specific roadmap change, mark the change complete, and confirm whether it is resolved.
 - Key contexts of use: desktop browser, data-dense authoring, repeated use across multiple client roadmaps, shared catalog visible across devices.
 
 ## Information architecture
@@ -52,8 +55,9 @@
   - `저장된 로드맵`: shared roadmap list, create, open, and permanent delete.
   - Editor: the existing roadmap/catalog working modes plus explicit roadmap save and return-to-list actions.
 - Working modes:
-  - `로드맵 편집`: client name, selected program rows, validation, A4 preview, and PDF print.
+  - `로드맵 편집`: client name, selected program rows, validation, A4 preview, PDF print, and native editable PPTX download.
   - `사업 카탈로그`: shared master list, master CRUD, and copy-to-roadmap action.
+- Roadmap feedback stays inside `로드맵 편집`: selecting a bar either opens the zero-feedback quick composer beside it or opens the existing thread in the right inspector.
 - Content hierarchy in catalog mode:
   1. Working-mode controls.
   2. Saved-program list and its primary selection actions.
@@ -71,6 +75,7 @@
 - Make data boundaries visible: distinguish `사업 카탈로그` masters from `로드맵 사업` copies in labels and feedback.
 - Prefer boring, native interaction patterns: buttons, inputs, lists/tables, row separators, and inline feedback before custom widgets.
 - Tradeoff: MVP public editing favors speed over protection. Do not disguise the absence of authentication as security.
+- Minimize feedback chrome: show a small screen-only feedback affordance on the bar, then reveal only the active thread and its next valid action.
 
 ## Visual language
 
@@ -97,11 +102,14 @@
   - New-business `CatalogForm` is text-first: one agreed-format textarea, inline source-text errors, then searchable multi-select industry and region tags. A missing industry or region can be added as an immediately persisted public option from its picker. It parses only on registration and never shows a parsed-result review or individual creation fields.
   - Existing-business editing retains the current individual editable fields and tag selectors.
   - Inline catalog status feedback with a route back to roadmap editing.
+  - `RoadmapFeedbackComposer` anchored beside a selected bar only when that program has no feedback.
+  - `RoadmapFeedbackInspector` for an existing thread, with program title, state, flat timeline, team-lead authentication when needed, and current-state actions.
 - Variants and states:
   - Mode switch: active and inactive.
   - Catalog row: default, focused, expanded if needed, submitting, and mutation error.
   - Add action: ready, submitting, added, and disabled for invalid records.
   - Form: create and edit, sharing the same field policy.
+  - Feedback: none/quick composer, `수정 필요`, `수정 완료`, `해결`, loading, retryable error, unauthenticated lead action, and authenticated lead action.
 - Token/component ownership: extend existing CSS classes and variables; do not introduce a design-system layer or dependency for this feature.
 
 ## Accessibility
@@ -127,6 +135,7 @@
   - Wide screens use aligned table/list columns.
   - Narrow authoring widths stack secondary metadata beneath the program title and keep the primary add action visible.
   - Do not convert the catalog into a modal or drawer at narrow widths.
+  - The feedback inspector slides from the right on desktop and becomes a full-width lower panel on narrow screens. The quick composer remains anchored to the selected bar without changing printable geometry.
 - Touch/hover differences: all actions have visible labels or accessible names and touch-safe targets; hover is supplementary.
 
 ## Interaction states
@@ -137,7 +146,10 @@
 - Error: preserve the last usable catalog data when possible, explain the failed operation, and offer a focused retry.
 - Success: confirm the named program was added and offer `로드맵 편집으로 이동`.
 - Disabled: state why an action is unavailable; do not use disabled styling as the only explanation.
+- PPTX export: disable only for canonical document/layout errors or while generation is running; show a named success message or an explicit generation error inline. Chromium/PDF-runtime-only failures must not disable PPTX export.
 - Offline/slow network: do not claim a shared write succeeded until the server confirms it; the roadmap remains locally usable during catalog failure.
+- Feedback failure: keep the active roadmap and last usable feedback timeline intact, show a focused retry, and never imply a state transition succeeded before server confirmation.
+- Unsaved roadmap feedback: explain that the roadmap must be explicitly saved before feedback can be persisted; do not silently autosave.
 - New-business parse errors: keep the source text and tag selections in place, show actionable feedback immediately below the textarea, and do not issue a create request until the source format is valid.
 - New industry/region options: persist when the inline add action succeeds, independently of later business registration. Keep a successful option after registration cancellation or failure; on option failure, preserve the source text and existing selections.
 
@@ -161,9 +173,11 @@
   - Use the existing Sites D1 capability through a logical `DB` binding for central structured persistence. Sites owns the deployed database resource and binding.
   - Route catalog requests through the existing Worker before its unchanged static-asset and app-shell fallback behavior.
   - Public shared writes still require API-boundary validation and safe failure handling.
+  - Keep shared team-lead password verification, retry limits, and sessions in the Worker/D1 boundary. Browser code receives only authenticated session state and never the password verifier or session record.
 - Test/screenshot expectations:
   - Add focused behavior checks for mode switching, catalog load/CRUD, copy-on-select, and master/copy independence.
   - Keep the existing roadmap policy, PDF preflight, render-contract, build, and Sites tests passing.
+  - Inspect generated PPTX package structure and rendered slide output. Require one A4 landscape slide, editable native text/shapes/lines, stable `.text`/`.amount`/`.bar` program object names, ANP-only output branding, and no full-slide screenshot. Compare a rendered amount label against the approved PDF and keep its horizontal and vertical origin within 2px at 1754 x 1240px.
   - Verify at least one populated, empty, loading, mutation-error, and success state.
 
 ## Catalog data and API policy
@@ -192,8 +206,18 @@
 - Access/concurrency: all visitors can read, update, and permanently delete; last write wins. Show this risk in the library and revisit authentication before production exposure.
 - Save semantics: new roadmaps exist only in memory until the user chooses `로드맵 저장`; no autosave.
 
+## Roadmap feedback data and API policy
+
+- Storage: keep one thread per saved roadmap/program pair and a chronological event list in D1. Feedback is not part of `document_json`.
+- State machine: initial team-lead feedback creates `수정 필요`; the public assignee/editor may transition it to `수정 완료`; an authenticated team lead may transition it to `해결` or back to `수정 필요` with a required rework message.
+- Authentication: use one shared team-lead password verifier stored as a server secret, a short-lived HttpOnly/Secure/SameSite session, and D1-backed server throttling. No personal account or named actor record is created.
+- API boundary: list feedback by saved roadmap; create initial feedback for a stable program ID; transition one program thread with the allowed action. Validate roadmap/program existence, request shape, text length, current state, team-lead session where required, and JSON content type.
+- Deletion: roadmap deletion removes its feedback; a program removed from a saved roadmap must not leave user-visible orphaned feedback.
+- Export isolation: the inspector, quick composer, unresolved marker, selection outline, and state indicators are screen-only and excluded from print, PDF, and PPTX. Roadmap bars never show a feedback or comment count.
+
 ## Open questions
 
 - [x] Central persistence/API: Sites D1 with logical `DB` binding and Worker-owned catalog routes.
 - [x] MVP long-list scaling: server-bounded offset pagination, 50 by default and 100 maximum.
-- [ ] Revisit authentication, administrator permissions, moderation, and feedback before production exposure / product owner / accepted MVP risk.
+- [x] Roadmap feedback MVP: shared team-lead password, no personal accounts, authoring-only quick composer and responsive inspector.
+- [ ] Revisit personal authentication, individual revocation/attribution, and broader moderation before production exposure / product owner / accepted shared-credential risk.

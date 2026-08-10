@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildRoadmapLayout, moveProgramToLane, ROADMAP_CATEGORIES, validateRoadmapDocument } from "../src/roadmap-policy.js";
+import {
+  allowedCategoriesForTier,
+  buildRoadmapLayout,
+  moveProgramToLane,
+  ROADMAP_CATEGORIES,
+  validateRoadmapDocument,
+} from "../src/roadmap-policy.js";
 
 const program = (id, startMonth, endMonth, extra = {}) => ({
   id,
@@ -28,6 +34,46 @@ test("uses fixed category order and fixed row ceilings", () => {
   assert.deepEqual(ROADMAP_CATEGORIES.map(({ key, maxRows }) => [key, maxRows]), [
     ["consulting", 2], ["business", 4], ["voucher", 2], ["ip", 2], ["certification", 1],
   ]);
+});
+
+test("normalizes missing roadmap tier to premium", () => {
+  const { document, errors } = validateRoadmapDocument({ clientName: "ANP", programs: [] });
+
+  assert.equal(document.tier, "premium");
+  assert.deepEqual(errors, []);
+});
+
+test("exposes premium and standard category subsets in canonical order", () => {
+  assert.deepEqual(allowedCategoriesForTier("premium").map(({ key }) => key), [
+    "consulting", "business", "voucher", "ip", "certification",
+  ]);
+  assert.deepEqual(allowedCategoriesForTier("standard").map(({ key }) => key), [
+    "consulting", "business", "voucher", "ip",
+  ]);
+});
+
+test("resolves premium and standard layout lane counts from tier", () => {
+  const premium = buildRoadmapLayout({ tier: "premium", clientName: "ANP", programs: [] });
+  const standard = buildRoadmapLayout({ tier: "standard", clientName: "ANP", programs: [] });
+
+  assert.equal(premium.sections.length, 5);
+  assert.equal(premium.sections.flatMap((section) => section.lanes).length, 11);
+  assert.equal(standard.sections.length, 4);
+  assert.equal(standard.sections.flatMap((section) => section.lanes).length, 10);
+});
+
+test("rejects unsupported tiers and standard certification programs", () => {
+  const unsupported = validateRoadmapDocument({ tier: "enterprise", clientName: "ANP", programs: [] });
+  assert.deepEqual(unsupported.errors.map(({ code }) => code), ["E_TIER_UNSUPPORTED"]);
+
+  const standard = buildRoadmapLayout({
+    tier: "standard",
+    clientName: "ANP",
+    programs: [program("cert-1", 1, 1, { category: "certification" })],
+  });
+  assert.deepEqual(standard.sections.map(({ key }) => key), ["consulting", "business", "voucher", "ip"]);
+  assert.equal(standard.errors.some(({ code, programId }) => code === "E_CATEGORY_FORBIDDEN_FOR_TIER" && programId === "cert-1"), true);
+  assert.equal(standard.sections.some((section) => section.lanes.flat().some((item) => item.id === "cert-1")), false);
 });
 
 test("places inclusive month ranges with deterministic first-fit", () => {
@@ -86,6 +132,23 @@ test("moves a program to an empty valid lane without mutating the input", () => 
   assert.notEqual(result.programs, programs);
   assert.equal(programs[0].laneIndex, undefined);
   assert.equal(result.programs.find((item) => item.id === "p1").laneIndex, 1);
+});
+
+test("moves standard programs inside allowed categories only", () => {
+  const programs = [
+    program("p1", 1, 2, { category: "business" }),
+    program("p2", 3, 4, { category: "business" }),
+    program("cert-1", 1, 1, { category: "certification" }),
+  ];
+
+  const moved = moveProgramToLane({ tier: "standard", programs, programId: "p1", targetLaneIndex: 1 });
+  assert.equal(moved.ok, true);
+  assert.equal(moved.programs.find((item) => item.id === "p1").laneIndex, 1);
+
+  assert.deepEqual(
+    moveProgramToLane({ tier: "standard", programs, programId: "cert-1", targetLaneIndex: 0 }),
+    { ok: false, programs, outcome: "rejected" },
+  );
 });
 
 test("moves a valid program despite incomplete rows elsewhere in the document", () => {

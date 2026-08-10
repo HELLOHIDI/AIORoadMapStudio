@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PDF_RUNTIME } from "../src/pdf-runtime.js";
+import { allowedCategoriesForTier } from "../src/roadmap-policy.js";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fixture = JSON.parse(readFileSync(join(projectRoot, "tests/fixtures/pdf-runtime.json"), "utf8"));
@@ -11,10 +12,15 @@ const arg = (name, fallback) => {
   const index = process.argv.indexOf(name);
   return index === -1 ? fallback : process.argv[index + 1];
 };
+const tier = arg("--tier", "premium");
+if (!["premium", "standard"].includes(tier)) throw new Error(`Unsupported verification tier: ${tier}`);
+const tierLabel = tier === "premium" ? "Premium" : "Standard";
+const outputStem = tier === "premium" ? "ANP-roadmap-verified" : `ANP-roadmap-${tier}-verified`;
+const expectedCategoryLabels = allowedCategoriesForTier(tier).map(({ label }) => label);
 const url = arg("--url", "http://127.0.0.1:4173/");
-const pdfPath = resolve(projectRoot, arg("--output", "output/pdf/ANP-roadmap-verified.pdf"));
-const previewBase = resolve(projectRoot, arg("--preview", "output/preview/ANP-roadmap-verified"));
-const reportPath = resolve(projectRoot, arg("--report", "output/pdf/ANP-roadmap-verified.qa.json"));
+const pdfPath = resolve(projectRoot, arg("--output", `output/pdf/${outputStem}.pdf`));
+const previewBase = resolve(projectRoot, arg("--preview", `output/preview/${outputStem}`));
+const reportPath = resolve(projectRoot, arg("--report", `output/pdf/${outputStem}.qa.json`));
 const profileRoot = join(tmpdir(), "anp-roadmap-pdf");
 mkdirSync(profileRoot, { recursive: true });
 const profileDir = mkdtempSync(join(profileRoot, "pdf-harness-profile-"));
@@ -110,6 +116,7 @@ let cdp;
 let status;
 let errors;
 const browserLogs = [];
+let editorReady = false;
 
 try {
   const portFile = join(profileDir, "DevToolsActivePort");
@@ -119,8 +126,16 @@ try {
   const page = targets.find(({ type }) => type === "page");
   if (!page) throw new Error("Managed Chrome did not expose a page target");
   cdp = await connectCdp(page.webSocketDebuggerUrl, ({ method, params }) => {
-    if (method === "Runtime.exceptionThrown") browserLogs.push(params.exceptionDetails?.text ?? method);
-    if (method === "Log.entryAdded" && ["warning", "error"].includes(params.entry?.level)) browserLogs.push(params.entry.text);
+    if (method === "Runtime.exceptionThrown") {
+      browserLogs.push({ source: "runtime", text: params.exceptionDetails?.exception?.description ?? params.exceptionDetails?.text ?? method, url: "" });
+    }
+    if (method === "Log.entryAdded" && ["warning", "error"].includes(params.entry?.level)) {
+      const entry = params.entry;
+      const expectedPreviewApiMiss = !editorReady
+        && entry.url?.includes("/api/roadmaps?limit=50&offset=0")
+        && entry.text.includes("404");
+      if (!expectedPreviewApiMiss) browserLogs.push({ source: entry.source, text: entry.text, url: entry.url ?? "" });
+    }
   });
   await cdp.send("Runtime.enable");
   await cdp.send("Log.enable");
@@ -128,6 +143,60 @@ try {
   const version = await cdp.send("Browser.getVersion");
   if (!version.product?.startsWith(`Chrome/${fixture.major}.`)) throw new Error(`Unexpected CDP runtime: ${version.product}`);
   await cdp.send("Page.navigate", { url });
+
+  const editorStarted = Date.now();
+  do {
+    const result = await cdp.send("Runtime.evaluate", {
+      expression: `(() => {
+        const editorInput = document.querySelector(".authoring-header input");
+        if (editorInput) {
+          const programInputs = document.querySelectorAll(".program-row input");
+          const programTitleInput = programInputs[0];
+          if (!programTitleInput) {
+            document.querySelector(".authoring-header button")?.click();
+            return "editor-adding-program";
+          }
+          const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+          setValue.call(editorInput, "올인원 검증");
+          editorInput.dispatchEvent(new Event("input", { bubbles: true }));
+          setValue.call(programTitleInput, "Road 검증");
+          programTitleInput.dispatchEvent(new Event("input", { bubbles: true }));
+          setValue.call(programInputs[3], "1000000");
+          programInputs[3].dispatchEvent(new Event("input", { bubbles: true }));
+          return "editor";
+        }
+        const tierButton = [...document.querySelectorAll(".tier-choice__actions button")]
+          .find((button) => button.textContent.trim() === ${JSON.stringify(tierLabel)});
+        if (tierButton) {
+          tierButton.click();
+          return "tier";
+        }
+        const newRoadmapButton = document.querySelector("main.catalog-panel .catalog-heading .button-primary");
+        if (newRoadmapButton) {
+          newRoadmapButton.click();
+          return "library";
+        }
+        return "loading";
+      })()`,
+      returnByValue: true,
+    });
+    if (result.result.value === "editor") break;
+    if (Date.now() - editorStarted > 15_000) throw new Error(`Timed out entering the ${tierLabel} roadmap editor; surface=${result.result.value}`);
+    await wait(100);
+  } while (true);
+  editorReady = true;
+
+  const surfaceResult = await cdp.send("Runtime.evaluate", {
+    expression: `(() => ({
+      tier: document.querySelector(".tier-badge--editor")?.textContent.trim(),
+      categories: [...document.querySelectorAll(".preview-stage .roadmap-section__label")].map((node) => node.textContent.trim()),
+    }))()`,
+    returnByValue: true,
+  });
+  const surface = surfaceResult.result.value;
+  if (surface?.tier !== tierLabel || JSON.stringify(surface?.categories) !== JSON.stringify(expectedCategoryLabels)) {
+    throw new Error(`Unexpected ${tierLabel} authoring surface: ${JSON.stringify(surface)}`);
+  }
 
   const started = Date.now();
   do {
@@ -141,7 +210,10 @@ try {
     await wait(100);
   } while (true);
   if (status !== "ready" || errors !== "") throw new Error(`PDF preflight is ${status}; errors=${errors}`);
-  if (browserLogs.length) throw new Error(`Browser console errors: ${browserLogs.join(" | ")}`);
+  if (browserLogs.length) {
+    const details = browserLogs.map(({ source, text, url: entryUrl }) => `${source}${entryUrl ? ` ${entryUrl}` : ""}: ${text}`).join(" | ");
+    throw new Error(`Browser console errors: ${details}`);
+  }
 
   const printed = await cdp.send("Page.printToPDF", {
     landscape: true,
@@ -189,7 +261,7 @@ const pdf = JSON.parse(pdfJson);
 if (pdf.pages !== 1 || Math.abs(pdf.width - 841.92) > 0.1 || Math.abs(pdf.height - 594.96) > 0.1) {
   throw new Error(`Expected one A4 landscape page; got ${pdf.pages} page(s), ${pdf.width} x ${pdf.height} pt`);
 }
-for (const hiddenText of ["ANP 연간 로드맵 제작", "사업 추가", "금액(원)", "출력 기준:"]) {
+for (const hiddenText of ["ANP 연간 로드맵 제작", "사업 추가", "금액(원)", "출력 기준:", "Premium", "Standard"]) {
   if (pdf.text.includes(hiddenText)) throw new Error(`no-print content leaked into PDF: ${hiddenText}`);
 }
 for (const requiredText of ["올인원", "Road", "주식회사", "advisor@anpc.co.kr"]) {
@@ -209,6 +281,7 @@ if (!existsSync(previewPath)) throw new Error(`PDF preview was not created: ${pr
 
 const report = {
   result: "passed",
+  tier,
   url,
   runtime: { family: fixture.family, product: fixture.product, version: installedVersion, major: fixture.major },
   profile: fixture.profile,

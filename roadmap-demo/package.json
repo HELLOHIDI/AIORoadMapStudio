@@ -5,17 +5,22 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/prepare-sites-build.mjs",
+    "build": "vite build && node scripts/assert-pptx-browser-bundle.mjs && node scripts/prepare-sites-build.mjs",
     "preview": "vite preview",
-    "test": "node --test tests/amount.test.mjs tests/catalog.test.mjs tests/roadmap-policy.test.mjs tests/pdf-runtime.test.mjs tests/pdf-preflight.test.mjs tests/render-contract.test.mjs",
+    "test": "node --test tests/amount.test.mjs tests/catalog.test.mjs tests/roadmap-policy.test.mjs tests/pdf-runtime.test.mjs tests/pdf-preflight.test.mjs tests/pptx-export.test.mjs tests/render-contract.test.mjs tests/feedback-worker.test.mjs",
+    "test:pptx": "node --test tests/pptx-export.test.mjs",
     "test:sites": "node --test tests/sites-worker.test.mjs",
-    "verify:pdf": "node scripts/verify-roadmap-pdf.mjs"
+    "verify:pdf": "node scripts/verify-roadmap-pdf.mjs --tier premium && node scripts/verify-roadmap-pdf.mjs --tier standard",
+    "verify:pptx": "node scripts/verify-roadmap-pptx.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "5.0.4",
-    "vite": "6.4.3",
+    "pptxgenjs": "4.0.1",
     "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "react-dom": "19.2.0",
+    "vite": "6.4.3"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "jszip": "3.10.1"
+  }
 }

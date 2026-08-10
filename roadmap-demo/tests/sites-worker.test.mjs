@@ -166,17 +166,21 @@ function createRoadmapDatabase() {
                 results: rows
                   .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id))
                   .slice(offset, offset + limit)
-                  .map(({ id, clientName, createdAt, updatedAt }) => ({ id, clientName, createdAt, updatedAt })),
+                  .map(({ id, tier, clientName, createdAt, updatedAt }) => ({ id, tier, clientName, createdAt, updatedAt })),
               };
             },
             async first() {
               if (statement.startsWith("SELECT COUNT")) return { total: rows.length };
+              if (statement.startsWith("SELECT tier FROM roadmaps")) {
+                const row = rows.find((item) => item.id === params[0]);
+                return row ? { tier: row.tier } : null;
+              }
               return rows.find((item) => item.id === params[0]) ?? null;
             },
             async run() {
               if (statement.startsWith("INSERT")) {
-                const [id, clientName, documentJson, createdAt, updatedAt] = params;
-                rows.push({ id, clientName, documentJson, createdAt, updatedAt });
+                const [id, tier, clientName, documentJson, createdAt, updatedAt] = params;
+                rows.push({ id, tier, clientName, documentJson, createdAt, updatedAt });
                 return { meta: { changes: 1 } };
               }
               if (statement.startsWith("UPDATE")) {
@@ -400,6 +404,7 @@ test("persists public roadmap drafts without applying PDF validity rules", async
   const env = { DB };
   const request = (path, options) => worker.fetch(new Request(`https://example.test${path}`, options), env);
   const draft = {
+    tier: "standard",
     clientName: "",
     programs: [{
       id: "draft-1",
@@ -430,6 +435,38 @@ test("persists public roadmap drafts without applying PDF validity rules", async
   });
   assert.equal(invalidAmount.status, 400);
 
+  const missingTier = await request("/api/roadmaps", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ clientName: "", programs: [] }),
+  });
+  assert.equal(missingTier.status, 400);
+  assert.equal(DB.rows.length, 0);
+
+  const standardCertification = await request("/api/roadmaps", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      ...draft,
+      programs: [{ ...draft.programs[0], id: "cert-1", category: "certification" }],
+    }),
+  });
+  assert.equal(standardCertification.status, 400);
+  assert.equal(DB.rows.length, 0);
+
+  const premiumCertification = await request("/api/roadmaps", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      ...draft,
+      tier: "premium",
+      programs: [{ ...draft.programs[0], id: "cert-1", category: "certification" }],
+    }),
+  });
+  assert.equal(premiumCertification.status, 201);
+  assert.equal(DB.rows.length, 1);
+  DB.rows.length = 0;
+
   const oversized = await request("/api/roadmaps", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -445,17 +482,21 @@ test("persists public roadmap drafts without applying PDF validity rules", async
   const created = await createdResponse.json();
   assert.equal(createdResponse.status, 201);
   assert.deepEqual(created.item.document, draft);
+  assert.equal(created.item.tier, "standard");
   assert.equal(DB.rows.length, 1);
+  assert.equal(DB.rows[0].tier, "standard");
 
   const listResponse = await request("/api/roadmaps?limit=50&offset=0");
   const list = await listResponse.json();
   assert.equal(list.total, 1);
   assert.equal(list.items[0].id, created.item.id);
+  assert.equal(list.items[0].tier, "standard");
   assert.equal(Object.hasOwn(list.items[0], "document"), false);
 
   const openedResponse = await request(`/api/roadmaps/${created.item.id}`);
   const opened = await openedResponse.json();
   assert.deepEqual(opened.item.document, draft);
+  assert.equal(opened.item.tier, "standard");
 
   const updatedDraft = { ...draft, clientName: "수정 중인 고객" };
   const updatedResponse = await request(`/api/roadmaps/${created.item.id}`, {
@@ -466,6 +507,15 @@ test("persists public roadmap drafts without applying PDF validity rules", async
   const updated = await updatedResponse.json();
   assert.equal(updatedResponse.status, 200);
   assert.deepEqual(updated.item.document, updatedDraft);
+  assert.equal(DB.rows[0].tier, "standard");
+
+  const tierChange = await request(`/api/roadmaps/${created.item.id}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...updatedDraft, tier: "premium" }),
+  });
+  assert.equal(tierChange.status, 409);
+  assert.deepEqual(JSON.parse(DB.rows[0].documentJson), updatedDraft);
 
   const unsupportedMethod = await request(`/api/roadmaps/${created.item.id}`, { method: "PATCH" });
   assert.equal(unsupportedMethod.status, 405);
@@ -483,6 +533,63 @@ test("persists public roadmap drafts without applying PDF validity rules", async
   assert.equal(missingResponse.status, 404);
 });
 
+test("hydrates legacy roadmap JSON tier from the canonical row and rejects mismatches", async () => {
+  const DB = createRoadmapDatabase();
+  const env = { DB };
+  const request = (path, options) => worker.fetch(new Request(`https://example.test${path}`, options), env);
+  const timestamp = "2026-01-01T00:00:00.000Z";
+  const legacyDocument = { clientName: "Legacy", programs: [] };
+  DB.rows.push({
+    id: "legacy-1",
+    tier: "premium",
+    clientName: "Legacy",
+    documentJson: JSON.stringify(legacyDocument),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
+
+  const legacyResponse = await request("/api/roadmaps/legacy-1");
+  const legacy = await legacyResponse.json();
+  assert.equal(legacyResponse.status, 200);
+  assert.deepEqual(legacy.item.document, { ...legacyDocument, tier: "premium" });
+  assert.deepEqual(JSON.parse(DB.rows[0].documentJson), legacyDocument);
+
+  const resaveResponse = await request("/api/roadmaps/legacy-1", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(legacy.item.document),
+  });
+  assert.equal(resaveResponse.status, 200);
+  assert.equal(DB.rows[0].tier, "premium");
+  assert.deepEqual(JSON.parse(DB.rows[0].documentJson), { ...legacyDocument, tier: "premium" });
+
+  DB.rows.push({
+    id: "mismatch-1",
+    tier: "standard",
+    clientName: "Mismatch",
+    documentJson: JSON.stringify({ tier: "premium", clientName: "Mismatch", programs: [] }),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
+  const mismatchResponse = await request("/api/roadmaps/mismatch-1");
+  assert.equal(mismatchResponse.status, 500);
+  assert.equal((await mismatchResponse.json()).error, "ROADMAP_TIER_DATA_INTEGRITY");
+  assert.equal(DB.rows[1].tier, "standard");
+  assert.equal(JSON.parse(DB.rows[1].documentJson).tier, "premium");
+
+  DB.rows.push({
+    id: "invalid-row-tier",
+    tier: "legacy-value",
+    clientName: "Invalid row tier",
+    documentJson: JSON.stringify({ tier: "premium", clientName: "Invalid row tier", programs: [] }),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
+  const invalidRowTierResponse = await request("/api/roadmaps/invalid-row-tier");
+  assert.equal(invalidRowTierResponse.status, 500);
+  assert.equal((await invalidRowTierResponse.json()).error, "ROADMAP_TIER_DATA_INTEGRITY");
+});
+
 test("emits the files required by Sites packaging", async () => {
   await access(new URL("../dist/client/index.html", import.meta.url));
   await access(new URL("../dist/server/index.js", import.meta.url));
@@ -491,6 +598,11 @@ test("emits the files required by Sites packaging", async () => {
   await access(new URL("../dist/.openai/drizzle/0001_saved_roadmaps.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0002_catalog_options.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/meta/_journal.json", import.meta.url));
+  const migration = await readFile(new URL("../drizzle/0003_saved_roadmaps_tier.sql", import.meta.url), "utf8");
+  assert.match(migration, /ADD COLUMN tier TEXT NOT NULL DEFAULT 'premium'/);
+  assert.match(migration, /CHECK \(tier IN \('premium', 'standard'\)\)/);
+  const journal = JSON.parse(await readFile(new URL("../drizzle/meta/_journal.json", import.meta.url), "utf8"));
+  assert.equal(journal.entries.filter((entry) => entry.tag === "0003_saved_roadmaps_tier").length, 1);
   const server = await readFile(new URL("../dist/server/index.js", import.meta.url), "utf8");
   assert.deepEqual(server.match(/^export /gm), ["export "]);
 });

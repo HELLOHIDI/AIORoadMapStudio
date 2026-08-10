@@ -1,12 +1,27 @@
-export const ROADMAP_CATEGORIES = Object.freeze([
-  { key: "consulting", label: "컨설팅", maxRows: 2, color: "#BFBFBF" },
-  { key: "business", label: "사업화", maxRows: 4, color: "#5B9BD5" },
-  { key: "voucher", label: "바우처", maxRows: 2, color: "#FFC000" },
-  { key: "ip", label: "IP", maxRows: 2, color: "#F86828" },
-  { key: "certification", label: "기업인증", maxRows: 1, color: "#70AD47" },
+const categoryDefinitions = Object.freeze([
+  Object.freeze({ key: "consulting", label: "컨설팅", maxRows: 2, color: "#BFBFBF", tiers: Object.freeze(["premium", "standard"]) }),
+  Object.freeze({ key: "business", label: "사업화", maxRows: 4, color: "#5B9BD5", tiers: Object.freeze(["premium", "standard"]) }),
+  Object.freeze({ key: "voucher", label: "바우처", maxRows: 2, color: "#FFC000", tiers: Object.freeze(["premium", "standard"]) }),
+  Object.freeze({ key: "ip", label: "IP", maxRows: 2, color: "#F86828", tiers: Object.freeze(["premium", "standard"]) }),
+  Object.freeze({ key: "certification", label: "기업인증", maxRows: 1, color: "#70AD47", tiers: Object.freeze(["premium"]) }),
 ]);
 
+export const ROADMAP_CATEGORIES = Object.freeze(categoryDefinitions
+  .map(({ key, label, maxRows, color }) => Object.freeze({ key, label, maxRows, color })));
 const categoryByKey = new Map(ROADMAP_CATEGORIES.map((category) => [category.key, category]));
+const tierKeys = [...new Set(categoryDefinitions.flatMap(({ tiers }) => tiers))];
+
+export const ROADMAP_TIERS = Object.freeze(Object.fromEntries(tierKeys.map((tier) => [
+  tier,
+  Object.freeze({
+    key: tier,
+    categories: Object.freeze(categoryDefinitions
+      .filter(({ tiers }) => tiers.includes(tier))
+      .map(({ key }) => categoryByKey.get(key))),
+  }),
+])));
+
+const roadmapTierSet = new Set(Object.keys(ROADMAP_TIERS));
 
 function error(code, path, message, programId) {
   return { code, path, message, ...(programId ? { programId } : {}) };
@@ -17,7 +32,9 @@ function normalizeText(value) {
 }
 
 function normalizeDocument(input) {
+  const tier = roadmapTierSet.has(input?.tier) ? input.tier : "premium";
   return {
+    tier,
     clientName: normalizeText(input?.clientName),
     programs: Array.isArray(input?.programs)
       ? input.programs.map((program) => ({
@@ -29,7 +46,15 @@ function normalizeDocument(input) {
   };
 }
 
-function validateProgram(program, index, seenIds) {
+export function resolveRoadmapTier(input) {
+  return roadmapTierSet.has(input?.tier) ? input.tier : "premium";
+}
+
+export function allowedCategoriesForTier(tier) {
+  return ROADMAP_TIERS[roadmapTierSet.has(tier) ? tier : "premium"].categories;
+}
+
+function validateProgram(program, index, seenIds, allowedCategoryKeys) {
   const errors = [];
   const path = `programs[${index}]`;
   const id = program?.id;
@@ -40,6 +65,8 @@ function validateProgram(program, index, seenIds) {
 
   if (!categoryByKey.has(program?.category)) {
     errors.push(error("E_CATEGORY_UNKNOWN", `${path}.category`, "지원하지 않는 구분입니다.", id));
+  } else if (!allowedCategoryKeys.has(program.category)) {
+    errors.push(error("E_CATEGORY_FORBIDDEN_FOR_TIER", `${path}.category`, `${program.title || id || path} is not supported for this roadmap tier.`, id));
   }
   if (!program?.title) errors.push(error("E_TITLE_REQUIRED", `${path}.title`, "사업명이 필요합니다.", id));
 
@@ -62,11 +89,15 @@ function validateProgram(program, index, seenIds) {
 export function validateRoadmapDocument(input) {
   const document = normalizeDocument(input);
   const errors = [];
+  if (input?.tier !== undefined && !roadmapTierSet.has(input.tier)) {
+    errors.push(error("E_TIER_UNSUPPORTED", "tier", "Unsupported roadmap tier."));
+  }
   if (!document.clientName) errors.push(error("E_CLIENT_NAME_REQUIRED", "clientName", "클라이언트명이 필요합니다."));
   if (!Array.isArray(input?.programs)) errors.push(error("E_PROGRAMS_REQUIRED", "programs", "프로그램 목록이 필요합니다."));
 
   const seenIds = new Set();
-  document.programs.forEach((program, index) => errors.push(...validateProgram(program, index, seenIds)));
+  const allowedCategoryKeys = new Set(allowedCategoriesForTier(document.tier).map((category) => category.key));
+  document.programs.forEach((program, index) => errors.push(...validateProgram(program, index, seenIds, allowedCategoryKeys)));
   return { document, errors };
 }
 
@@ -103,7 +134,7 @@ function hasValidMonthRange(program) {
 export function buildRoadmapLayout(input) {
   const { document, errors } = validateRoadmapDocument(input);
   const invalidIds = new Set(errors.map((item) => item.programId).filter(Boolean));
-  const sections = ROADMAP_CATEGORIES.map((category) => ({
+  const sections = allowedCategoriesForTier(document.tier).map((category) => ({
     ...category,
     lanes: Array.from({ length: category.maxRows }, () => []),
   }));
@@ -135,9 +166,10 @@ export function buildRoadmapLayout(input) {
   return { document, sections, errors };
 }
 
-export function moveProgramToLane({ programs, programId, targetLaneIndex }) {
+export function moveProgramToLane({ programs, programId, targetLaneIndex, tier = "premium" }) {
   const program = programs.find((item) => item.id === programId);
-  const category = categoryByKey.get(program?.category);
+  const allowedCategoryKeys = new Set(allowedCategoriesForTier(tier).map((category) => category.key));
+  const category = allowedCategoryKeys.has(program?.category) ? categoryByKey.get(program?.category) : undefined;
   if (!program || !category || !Number.isInteger(targetLaneIndex) || targetLaneIndex < 0 || targetLaneIndex >= category.maxRows) {
     return { ok: false, programs, outcome: "rejected" };
   }
@@ -147,7 +179,7 @@ export function moveProgramToLane({ programs, programId, targetLaneIndex }) {
     .map((item) => ({ ...item, title: item.title || "layout" }));
   if (!lanePrograms.some((item) => item.id === programId)) return { ok: false, programs, outcome: "rejected" };
 
-  const layout = buildRoadmapLayout({ clientName: "layout", programs: lanePrograms });
+  const layout = buildRoadmapLayout({ tier, clientName: "layout", programs: lanePrograms });
 
   const section = layout.sections.find((item) => item.key === program.category);
   const current = section.lanes.flat().find((item) => item.id === programId);

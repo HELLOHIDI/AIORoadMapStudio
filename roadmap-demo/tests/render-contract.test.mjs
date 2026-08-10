@@ -2,11 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PDF_RUNTIME } from "../src/pdf-runtime.js";
+import { PPTX_LAYOUT } from "../src/pptx-export.js";
 
 const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const app = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const pptxExport = readFileSync(new URL("../src/pptx-export.js", import.meta.url), "utf8");
+const pdfVerifier = readFileSync(new URL("../scripts/verify-roadmap-pdf.mjs", import.meta.url), "utf8");
+const pptxVerifier = readFileSync(new URL("../scripts/verify-roadmap-pptx.mjs", import.meta.url), "utf8");
 const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/pdf-runtime.json", import.meta.url), "utf8"));
+const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
 test("locks the approved PDF typography and spacing tokens", () => {
   assert.match(styles, /\.roadmap-sheet\s*\{[^}]*letter-spacing:\s*0;/s);
@@ -14,6 +19,26 @@ test("locks the approved PDF typography and spacing tokens", () => {
   assert.match(styles, /\.roadmap-event__copy sup\s*\{[^}]*top:\s*-8pt;/s);
   assert.match(styles, /\.roadmap-event__bar\s*\{[^}]*height:\s*0\.21cm;/s);
   assert.match(styles, /@media print\s*\{[\s\S]*\.no-print\s*\{[^}]*display:\s*none !important;/s);
+});
+
+test("keeps native PPTX geometry synchronized with the approved PDF sheet", () => {
+  assert.deepEqual(PPTX_LAYOUT.page, { widthMm: 297, heightMm: 210 });
+  assert.deepEqual(PPTX_LAYOUT.content, { leftMm: 11.7, rightMm: 6.7 });
+  assert.equal(PPTX_LAYOUT.headerHeightMm, 37.8);
+  assert.equal(PPTX_LAYOUT.categoryWidthMm, 21);
+  assert.equal(PPTX_LAYOUT.monthHeightMm, 10.2);
+  assert.equal(PPTX_LAYOUT.laneHeightMm, 10.287);
+  assert.equal(PPTX_LAYOUT.notesHeightMm, 18.9);
+  assert.equal(PPTX_LAYOUT.footerHeightMm, 16.7);
+
+  assert.match(styles, /\.roadmap-sheet\s*\{[^}]*width:\s*297mm;[^}]*height:\s*210mm;[^}]*padding:\s*0 6\.7mm 0 11\.7mm;/s);
+  assert.match(styles, /\.sheet-header\s*\{[^}]*height:\s*37\.8mm;/s);
+  assert.match(styles, /\.month-row\s*\{[^}]*grid-template-columns:\s*21mm 1fr;[^}]*height:\s*10\.2mm;/s);
+  assert.match(styles, /\.roadmap-lane\s*\{[^}]*height:\s*10\.287mm;/s);
+  assert.match(styles, /\.roadmap-event\s*\{[^}]*bottom:\s*0\.8mm;[^}]*left:\s*calc\(var\(--start\) \* \(100% \/ 12\) \+ 0\.7mm\);[^}]*width:\s*calc\(var\(--span\) \* \(100% \/ 12\) - 1\.4mm\);/s);
+  assert.match(styles, /\.roadmap-event__bar\s*\{[^}]*height:\s*0\.21cm;/s);
+  assert.match(styles, /\.sheet-notes\s*\{[^}]*height:\s*18\.9mm;/s);
+  assert.match(styles, /\.sheet-footer\s*\{[^}]*height:\s*16\.7mm;/s);
 });
 
 test("keeps fixed copy and the managed PDF runtime synchronized", () => {
@@ -32,6 +57,69 @@ test("keeps AIO branding in product chrome and ANP branding in the client PDF", 
   assert.ok(app.includes("<strong>AIO Roadmap Studio</strong>"));
   assert.ok(app.includes('className="brand-logo" src="/assets/anp-consulting-logo.png"'));
   assert.ok(!app.includes('className="brand-logo" src="/assets/aio-roadmap-studio'));
+});
+
+test("adds native PPTX export without coupling it to the PDF runtime gate", () => {
+  assert.ok(app.includes('await import("./pptx-export.js")'));
+  assert.ok(app.includes("PPTX 다운로드"));
+  assert.ok(app.includes('disabled={pptxState.status === "exporting" || layout.errors.length > 0}'));
+  assert.match(app, /const handlePptxExport = async \(\) => \{[\s\S]*if \(layout\.errors\.length\)[\s\S]*exportRoadmapPptx\(\{ layout \}\)[\s\S]*\n  \};/);
+  assert.doesNotMatch(app.match(/const handlePptxExport = async \(\) => \{[\s\S]*?\n  \};/)?.[0] || "", /pdfState|runPdfPreflight|currentRuntime/);
+  assert.ok(pptxExport.includes('presentation.writeFile({ fileName, compression: true })'));
+  assert.ok(pptxExport.includes('objectName: objectName("program", item.id, "bar")'));
+  assert.ok(pptxExport.includes('objectName: objectName("program", item.id, "amount")'));
+  assert.ok(pptxExport.includes("amountTopFromBarMm: 5.42"));
+  assert.equal(pptxExport.includes("superscript: true"), false);
+  assert.equal(pptxExport.includes("AIO Roadmap Studio"), false);
+});
+
+test("requires an authoring-only tier choice before blank roadmap creation", () => {
+  assert.ok(app.includes('useState("library")'));
+  assert.ok(app.includes('setScreen("tier")'));
+  assert.ok(app.includes('ref={tierHeading}'));
+  assert.ok(app.includes('onClick={() => createRoadmapWithTier("premium")}'));
+  assert.ok(app.includes('onClick={() => createRoadmapWithTier("standard")}'));
+  assert.ok(app.includes("const blank = { tier, clientName: \"\", programs: [] }"));
+  assert.ok(app.includes("const cancelTierSelection = () =>"));
+  assert.ok(app.includes('setScreen("library")'));
+  assert.ok(app.includes('className="tier-choice no-print"'));
+  assert.ok(app.includes('className="tier-badge tier-badge--editor no-print"'));
+  assert.ok(app.includes('className="tier-badge no-print"'));
+  assert.match(styles, /\.tier-choice\s*\{/);
+  assert.match(styles, /\.tier-badge\s*\{/);
+  assert.match(styles, /\.catalog-row__meta > div\s*\{[^}]*align-items: center;/s);
+  assert.ok(app.includes('className="catalog-row catalog-row--roadmap"'));
+  assert.match(styles, /@media \(max-width: 860px\)[\s\S]*?\.catalog-row--roadmap\s*\{\s*grid-template-columns: minmax\(0, 1fr\) auto;/);
+  assert.match(styles, /@media \(max-width: 560px\)[\s\S]*?\.catalog-row--roadmap\s*\{\s*grid-template-columns: 1fr;/);
+});
+
+test("resolves authoring categories from the immutable roadmap tier", () => {
+  assert.ok(app.includes("allowedCategoriesForTier(documentTier)"));
+  assert.ok(app.includes("resolveRoadmapTier(document)"));
+  assert.ok(app.includes("setActiveCategory(firstCategory)"));
+  assert.ok(app.includes("setCatalogCategory(firstCategory)"));
+  assert.ok(app.includes("const nextFirstCategory = allowedCategoriesForTier(resolveRoadmapTier(data.item.document))[0].key"));
+  assert.ok(app.includes("allowedCategories.map(({ key, label })"));
+  assert.ok(app.includes("categories={allowedCategories}"));
+  assert.ok(app.includes("params.set(\"category\", allowedCategoryKeys.has(catalogCategory) ? catalogCategory : firstAllowedCategory)"));
+  assert.ok(app.includes("if (!allowedCategoryKeys.has(program.category))"));
+  assert.ok(app.includes("tier: documentTier"));
+});
+
+test("keeps tier wording out of customer-facing export surfaces", () => {
+  const sheetMarkup = app.match(/<article className="roadmap-sheet"[\s\S]*?<\/article>/)?.[0] || "";
+  assert.doesNotMatch(sheetMarkup, /Premium|Standard|tierLabel/);
+  assert.doesNotMatch(pptxExport, /Premium|Standard|tierLabel/);
+});
+
+test("runs release export verification for both roadmap tiers", () => {
+  assert.match(packageJson.scripts["verify:pdf"], /--tier premium/);
+  assert.match(packageJson.scripts["verify:pdf"], /--tier standard/);
+  assert.ok(pdfVerifier.includes("expectedCategoryLabels = allowedCategoriesForTier(tier)"));
+  assert.ok(pdfVerifier.includes('tier === "premium" ? "Premium" : "Standard"'));
+  assert.ok(pptxVerifier.includes('tier: "standard"'));
+  assert.ok(pptxVerifier.includes("standardArtifacts.layout.sections.length, 4"));
+  assert.ok(pptxVerifier.includes("certificationAbsent: true"));
 });
 
 test("keeps creation text-first while leaving catalog editing field-based", () => {
@@ -60,6 +148,26 @@ test("renders the roadmap before its editing controls", () => {
   assert.ok(app.indexOf('<main className="preview-stage"') < app.indexOf('<section className="authoring-panel no-print"'));
 });
 
+test("keeps roadmap feedback anchored to bars and isolated from exports", () => {
+  assert.ok(app.includes('className="roadmap-event__main"'));
+  assert.ok(app.includes('onOpen(item.id)'));
+  assert.doesNotMatch(app, /feedbackCount/);
+  assert.ok(app.includes('roadmap-event__feedback-indicator--unresolved'));
+  assert.ok(app.includes('>수정 필요</span>'));
+  assert.ok(app.includes('className={`feedback-composer no-print'));
+  assert.ok(app.includes('className="feedback-panel no-print"'));
+  assert.ok(app.includes('composerOpen={item.id === selectedFeedbackProgramId && !feedbackByProgram[item.id]}'));
+  assert.match(styles, /\.roadmap-section:has\(\.feedback-composer\)\s*\{[^}]*z-index:\s*10;/s);
+  assert.ok(app.includes('event.role === "lead" || event.role === "team_lead"'));
+  assert.ok(app.includes('onAction("complete")'));
+  assert.ok(app.includes('onAction("rework")'));
+  assert.ok(app.includes('onAction("resolve")'));
+  assert.match(styles, /@media \(max-width: 860px\)\s*\{[\s\S]*\.feedback-panel\s*\{[\s\S]*bottom:\s*0;/s);
+  assert.match(styles, /@media print\s*\{[\s\S]*\.no-print\s*\{[^}]*display:\s*none !important;/s);
+  assert.match(styles, /@media print\s*\{[\s\S]*\.roadmap-event--selected \.roadmap-event__main\s*\{[^}]*outline:\s*0;/s);
+  assert.equal(pptxExport.includes("feedback"), false);
+});
+
 test("starts in the shared saved-roadmap library and requires explicit saves", () => {
   assert.ok(app.includes('useState("library")'));
   assert.ok(app.includes('fetch("/api/roadmaps?limit=50&offset=0"'));
@@ -79,11 +187,11 @@ test("starts in the shared saved-roadmap library and requires explicit saves", (
 test("keeps category tabs and direct roadmap moves outside print", () => {
   assert.ok(app.includes('className="category-tabs"'));
   assert.ok(app.includes('const activePrograms = document.programs.filter'));
-  assert.ok(app.includes('category: activeCategory'));
+  assert.ok(app.includes('category, title: ""'));
   assert.ok(app.includes('draggable'));
   assert.ok(app.includes('onDrop={(event) =>'));
   assert.ok(!app.includes('roadmap-event__handle'));
-  assert.ok(app.includes('params.set("category", catalogCategory)'));
+  assert.ok(app.includes('params.set("category", allowedCategoryKeys.has(catalogCategory) ? catalogCategory : firstAllowedCategory)'));
   assert.ok(app.includes('사업 상세보기'));
   assert.ok(app.includes('지원대상:'));
   assert.ok(app.includes('지원 내용:'));
@@ -91,5 +199,6 @@ test("keeps category tabs and direct roadmap moves outside print", () => {
   assert.match(styles, /\.category-tabs\s*\{/);
   assert.match(styles, /\.roadmap-lane\[data-drop-state="valid"\]/);
   assert.match(styles, /\.roadmap-lane\[data-drop-state="valid"\][\s\S]*outline:\s*0\.6pt dashed/s);
+  assert.doesNotMatch(styles, /standard[\s\S]*\.roadmap-lane[\s\S]*height:/i);
   assert.match(styles, /@media print\s*\{[\s\S]*\.roadmap-lane\[data-drop-state\]\s*\{[^}]*outline:\s*0;/s);
 });

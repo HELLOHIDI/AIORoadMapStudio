@@ -23,6 +23,17 @@ Build app UI in `src/`. Preserve the Sites packaging and static-fallback contrac
 - Warn before leaving a dirty editor. Failed reads or writes must not replace or discard the in-memory document.
 - Keep the saved-roadmap library and all controls out of print. Run `npm run test`, `npm run build`, and `npm run test:sites` before handoff.
 
+## Roadmap feedback contract
+
+- Feedback belongs to a saved roadmap and a stable roadmap-program ID. Store it separately from the roadmap JSON so it never changes PDF/PPTX geometry or client-facing exports.
+- Clicking or keyboard-activating a roadmap bar is the feedback entry point. Preserve drag/drop and ArrowUp/ArrowDown lane movement without accidental feedback activation after a drag.
+- When a program has no feedback, show a compact authoring-only composer beside the selected bar. When feedback exists, show only a screen-only unresolved marker and open a non-modal inspector from the right; at narrow widths the inspector becomes a full-width lower panel. Never show a feedback or comment count on a roadmap bar.
+- Keep the inspector minimal: program title, current state, chronological role/time/text timeline, and only the action available for the current state.
+- The state flow is `수정 필요` → `수정 완료` → `해결`. The public assignee/editor may mark `수정 완료`; only the shared authenticated team-lead role may create feedback, request rework, or confirm `해결`.
+- Team-lead access uses one shared password and a short-lived server session, not personal accounts. Keep password verifiers and session secrets in server-side secret bindings, apply server-side retry limits, and never place plaintext credentials in source, browser storage, responses, or logs.
+- Feedback UI, selection outlines, and state markers are authoring-only and must remain excluded from print, PDF, PPTX, and ANP client-facing output.
+- Failed feedback reads, writes, or authentication must leave the active in-memory roadmap unchanged. Removing a program must immediately hide its feedback from reads and remove its stale thread on the next roadmap save; deleting a roadmap must clean only its associated feedback.
+
 ## Roadmap demo design contract
 
 - Deliverable: true A4 landscape, single-page PDF; the authoring UI must never appear in print.
@@ -41,6 +52,16 @@ Build app UI in `src/`. Preserve the Sites packaging and static-fallback contrac
 - Managed output runtime: Google Chrome/Chromium major 150 with A4, landscape, 100% scale, no margins, background graphics on, and headers/footers off.
 - Any data, runtime, font, logo, collision, label-overflow, or page-overflow error blocks PDF output. Keep the policy and QA evidence in `src/pdf-runtime.js`, `tests/fixtures/pdf-runtime.json`, and `design-qa.md` synchronized.
 
+## Native editable PPTX export contract
+
+- Offer PPTX as a parallel export from roadmap editing without changing or replacing the managed PDF flow.
+- Produce exactly one A4 landscape slide from the canonical roadmap document and resolved layout; never use a DOM screenshot or a full-slide bitmap.
+- Keep the ANP logo as an independent image and create titles, months, category labels, program labels/amounts, notes, footer, table geometry, and program bars as native editable PowerPoint objects.
+- Preserve the approved PDF colors, font names/sizes, margins, row heights, inclusive month geometry, and ANP-only client-document identity as closely as PowerPoint rendering permits. Never add AIO Roadmap Studio branding or authoring controls to the PPTX.
+- Block PPTX generation on canonical document or layout errors, but do not couple the PPTX action to Chromium/PDF-runtime-only preflight checks.
+- Name program objects deterministically from their program ID and role (`.text`, `.amount`, `.bar`) so a future importer can map them. Keep an amount in its own editable text object and position it from the measured approved-font label width; importing or synchronizing edited PPTX files is not part of this contract.
+- The PPTX references `NanumSquare AC` and `Pretendard` by font name but does not embed font files. Font substitution on a recipient machine may change text metrics.
+
 ## Shared business catalog UX contract
 
 - `DESIGN.md` is the source of truth for authoring UI and catalog UX decisions; generated mockups are non-binding until explicitly approved.
@@ -50,3 +71,17 @@ Build app UI in `src/`. Preserve the Sites packaging and static-fallback contrac
 - Selecting a master creates an independent roadmap copy. Later edits or deletion of either record must not mutate the other.
 - Catalog controls and status must never appear in print or alter the A4 output contract.
 - MVP catalog writes are shared and unauthenticated by explicit product decision. Keep API validation and visible failure handling; defer login, roles, approval, moderation, and feedback.
+
+## Government support-program ingestion contract
+
+- This is the binding policy for the next full catalog ingestion. Do not treat the prior 10-minute crawl as a resumable production run; restart from row 1 after re-filtering the source workbook.
+- Preserve the standing source filters: exclude 2024 notices and support fields `인력` and `경영`.
+- Before crawling details, re-filter the previously reviewed workbook in its existing row order. Exclude any record whose normalized title contains `보증`, `연장`, or `추가모집`; normalize by removing whitespace so `추가 모집` is excluded as well.
+- Normalize every support period to `YY.MM ~ YY.MM`. Even a single-month period repeats the same month on both sides.
+- Rewrite `지원대상` as one concise sentence without dropping eligibility restrictions that affect who may apply.
+- Keep `지원내용` as one concise sentence when it describes one benefit. When it contains multiple benefits, use separate `- ` bullet lines within the cell or field.
+- Record `지원금액` as the single largest explicitly stated monetary amount. Keep only the amount and unit; remove qualifiers such as `최대`, `기업당`, `건당`, and `이내`.
+- Resolve an initially unknown amount by checking the structured amount field, notice body, downloaded attachments, and extracted support details, then selecting the largest explicit monetary value found. Never infer an unstated amount; if no source contains a monetary value, keep `불명` and flag it for review.
+- Assign exactly two distinct industry tags based on the title, target, and support details. Prefer existing catalog tags; if a materially relevant tag does not exist, create it before registration rather than using an unrelated substitute.
+- Assign every explicitly restricted region tag found in the eligibility conditions. If the program has no regional restriction, assign the `전국` tag.
+- Apply these transformations to the review dataset first. Do not write to the production catalog until the filtered and normalized result has been reviewed.

@@ -4,11 +4,18 @@ import { formatAmount } from "./amount.js";
 import { catalogPayload, copyCatalogProgram, EMPTY_CATALOG_PROGRAM, parseCatalogText } from "./catalog.js";
 import { runPdfPreflight } from "./pdf-preflight.js";
 import { detectPdfRuntime, PDF_RUNTIME } from "./pdf-runtime.js";
-import { buildRoadmapLayout, moveProgramToLane, ROADMAP_CATEGORIES } from "./roadmap-policy.js";
+import { allowedCategoriesForTier, buildRoadmapLayout, moveProgramToLane, ROADMAP_CATEGORIES, resolveRoadmapTier } from "./roadmap-policy.js";
 
 const months = Array.from({ length: 12 }, (_, index) => `${index + 1}월`);
 const categoryLabel = Object.fromEntries(ROADMAP_CATEGORIES.map(({ key, label }) => [key, label]));
 const EMPTY_ROADMAP = Object.freeze({ clientName: "", programs: Object.freeze([]) });
+const EMPTY_PPTX_STATE = Object.freeze({ status: "idle", error: "", message: "" });
+const tierLabel = Object.freeze({ premium: "Premium", standard: "Standard" });
+const feedbackStatusLabel = Object.freeze({
+  needs_changes: "수정 필요",
+  completed: "수정 완료",
+  resolved: "해결",
+});
 
 async function readApiJson(response) {
   if (!response.headers.get("content-type")?.includes("application/json")) {
@@ -25,41 +32,215 @@ function formatSavedAt(value) {
   return new Date(value).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" });
 }
 
-function RoadmapEvent({ item, dragging, onDragStart, onDragEnd, onMove }) {
+function formatFeedbackTime(value) {
+  return new Date(value).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function RoadmapEvent({
+  item,
+  dragging,
+  selected,
+  thread,
+  composerOpen,
+  composerDraft,
+  leadPassword,
+  leadAuthenticated,
+  onLogout,
+  feedbackMutation,
+  roadmapSaved,
+  onDragStart,
+  onDragEnd,
+  onMove,
+  onOpen,
+  onDraftChange,
+  onPasswordChange,
+  onComposerSubmit,
+  onSaveRoadmap,
+}) {
+  const suppressClick = useRef(false);
   const moveByKeyboard = (event) => {
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
     event.preventDefault();
     onMove(item.id, item.rowIndex + (event.key === "ArrowUp" ? -1 : 1));
   };
+  const unresolved = thread && thread.status !== "resolved";
+  const placeAbove = ["voucher", "ip", "certification"].includes(item.category);
 
   return (
     <div
-      className={`roadmap-event roadmap-event--${item.category}${dragging ? " roadmap-event--dragging" : ""}`}
+      className={`roadmap-event roadmap-event--${item.category}${dragging ? " roadmap-event--dragging" : ""}${selected ? " roadmap-event--selected" : ""}${composerOpen ? " roadmap-event--composer-open" : ""}`}
       data-program-id={item.id}
       style={{ "--start": item.startOffset, "--span": item.span }}
-      draggable
-      role="button"
-      tabIndex="0"
-      aria-label={`${item.title}, ${categoryLabel[item.category]}. 위아래 화살표 키로 행 이동`}
-      onDragStart={(event) => onDragStart(event, item.id)}
-      onDragEnd={onDragEnd}
-      onKeyDown={moveByKeyboard}
     >
-      <div className="roadmap-event__copy">
-        <span>{`[${categoryLabel[item.category]}] ${item.title}`}</span>
-        {item.amountKrw != null ? <sup>{formatAmount(item.amountKrw)}</sup> : null}
-      </div>
-      <div className="roadmap-event__bar" />
+      <button
+        type="button"
+        className="roadmap-event__main"
+        draggable
+        aria-pressed={selected}
+        aria-label={`${item.title}, ${categoryLabel[item.category]}.${unresolved ? " 미해결 피드백 있음." : ""} 위아래 화살표 키로 행 이동`}
+        onDragStart={(event) => {
+          suppressClick.current = true;
+          onDragStart(event, item.id);
+        }}
+        onDragEnd={(event) => {
+          onDragEnd(event);
+          globalThis.setTimeout(() => { suppressClick.current = false; }, 0);
+        }}
+        onKeyDown={moveByKeyboard}
+        onClick={() => {
+          if (suppressClick.current) return;
+          onOpen(item.id);
+        }}
+      >
+        <span className="roadmap-event__copy">
+          <span>{`[${categoryLabel[item.category]}] ${item.title}`}</span>
+          {item.amountKrw != null ? <sup>{formatAmount(item.amountKrw)}</sup> : null}
+        </span>
+        <span className="roadmap-event__bar" />
+        {unresolved ? <span className="roadmap-event__feedback-indicator roadmap-event__feedback-indicator--unresolved no-print">수정 필요</span> : null}
+      </button>
+
+      {composerOpen ? (
+        <form
+          className={`feedback-composer no-print${placeAbove ? " feedback-composer--above" : ""}`}
+          onSubmit={(event) => onComposerSubmit(event, item.id)}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <strong>피드백 남기기</strong>
+          {!roadmapSaved ? (
+            <>
+              <p>피드백을 연결하려면 로드맵을 먼저 저장해 주세요.</p>
+              <button type="button" className="button-primary" onClick={onSaveRoadmap}>로드맵 저장</button>
+            </>
+          ) : (
+            <>
+              <textarea
+                autoFocus
+                value={composerDraft}
+                onChange={(event) => onDraftChange(event.target.value)}
+                placeholder="수정이 필요한 내용을 입력하세요"
+                maxLength="2000"
+                required
+              />
+              {!leadAuthenticated ? (
+                <input
+                  type="password"
+                  value={leadPassword}
+                  onChange={(event) => onPasswordChange(event.target.value)}
+                  placeholder="팀장 비밀번호"
+                  autoComplete="current-password"
+                  required
+                />
+              ) : <div className="feedback-session-status">팀장 인증됨 <button type="button" onClick={onLogout}>로그아웃</button></div>}
+              {feedbackMutation.error ? <p className="feedback-error" role="alert">{feedbackMutation.error}</p> : null}
+              <button type="submit" className="button-primary" disabled={feedbackMutation.status === "saving"}>
+                {feedbackMutation.status === "saving" ? "등록 중" : "등록"}
+              </button>
+            </>
+          )}
+        </form>
+      ) : null}
     </div>
   );
 }
 
-function ProgramEditor({ program, onChange, onDelete }) {
+function FeedbackPanel({
+  program,
+  thread,
+  leadAuthenticated,
+  leadPassword,
+  reworkDraft,
+  mutation,
+  onClose,
+  onPasswordChange,
+  onAuthenticate,
+  onLogout,
+  onReworkDraftChange,
+  onAction,
+}) {
+  if (!program || !thread) return null;
+  return (
+    <aside className="feedback-panel no-print" aria-labelledby="feedback-panel-heading">
+      <div className="feedback-panel__heading">
+        <div>
+          <span>피드백</span>
+          <h2 id="feedback-panel-heading" tabIndex="-1">{program.title || "이름 없는 사업"}</h2>
+        </div>
+        <button type="button" className="feedback-panel__close" onClick={onClose} aria-label="피드백 닫기">닫기</button>
+      </div>
+
+      <p className={`feedback-status feedback-status--${thread.status}`}>{feedbackStatusLabel[thread.status]}</p>
+
+      <ol className="feedback-timeline">
+        {thread.events.map((event) => (
+          <li key={event.id} className={`feedback-timeline__item feedback-timeline__item--${event.type}`}>
+            <div>
+              <strong>{event.role === "lead" || event.role === "team_lead" ? "팀장" : "담당자"}</strong>
+              <time dateTime={event.createdAt}>{formatFeedbackTime(event.createdAt)}</time>
+            </div>
+            {event.text ? <p>{event.text}</p> : (
+              <p>{event.type === "completed" ? "수정 완료로 표시했습니다." : "해결을 확인했습니다."}</p>
+            )}
+          </li>
+        ))}
+      </ol>
+
+      {mutation.error ? <p className="feedback-error" role="alert">{mutation.error}</p> : null}
+
+      {leadAuthenticated ? <div className="feedback-session-status">팀장 인증됨 <button type="button" onClick={onLogout}>로그아웃</button></div> : null}
+
+      {thread.status === "needs_changes" ? (
+        <div className="feedback-panel__actions">
+          <button type="button" className="button-primary" disabled={mutation.status === "saving"} onClick={() => onAction("complete")}>
+            수정 완료
+          </button>
+        </div>
+      ) : null}
+
+      {thread.status === "completed" && !leadAuthenticated ? (
+        <form className="feedback-auth" onSubmit={onAuthenticate}>
+          <label>
+            <span>팀장 확인이 필요합니다</span>
+            <input
+              type="password"
+              value={leadPassword}
+              onChange={(event) => onPasswordChange(event.target.value)}
+              placeholder="팀장 비밀번호"
+              autoComplete="current-password"
+              required
+            />
+          </label>
+          <button type="submit" className="button-primary" disabled={mutation.status === "saving"}>팀장 인증</button>
+        </form>
+      ) : null}
+
+      {thread.status === "completed" && leadAuthenticated ? (
+        <div className="feedback-review">
+          <label>
+            <span>재수정이 필요하면 이유를 입력하세요</span>
+            <textarea
+              value={reworkDraft}
+              onChange={(event) => onReworkDraftChange(event.target.value)}
+              placeholder="재수정 요청 내용"
+              maxLength="2000"
+            />
+          </label>
+          <div className="feedback-panel__actions">
+            <button type="button" className="button-secondary" disabled={mutation.status === "saving" || !reworkDraft.trim()} onClick={() => onAction("rework")}>재수정 요청</button>
+            <button type="button" className="button-primary" disabled={mutation.status === "saving"} onClick={() => onAction("resolve")}>해결 확인</button>
+          </div>
+        </div>
+      ) : null}
+    </aside>
+  );
+}
+
+function ProgramEditor({ program, categories, onChange, onDelete }) {
   const number = (value) => value === "" ? "" : Number(value);
   return (
     <div className="program-row">
       <select aria-label="구분" value={program.category} onChange={(event) => onChange({ category: event.target.value })}>
-        {ROADMAP_CATEGORIES.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
+        {categories.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
       </select>
       <input aria-label="사업명" value={program.title} onChange={(event) => onChange({ title: event.target.value })} placeholder="사업명" />
       <input aria-label="시작월" type="number" min="1" max="12" value={program.startMonth} onChange={(event) => onChange({ startMonth: number(event.target.value) })} />
@@ -288,6 +469,7 @@ export function App() {
   const [openingRoadmapId, setOpeningRoadmapId] = useState(null);
   const [deletingRoadmapId, setDeletingRoadmapId] = useState(null);
   const [pdfState, setPdfState] = useState({ status: "editing", errors: [] });
+  const [pptxState, setPptxState] = useState(EMPTY_PPTX_STATE);
   const [mode, setMode] = useState("roadmap");
   const [catalog, setCatalog] = useState({ status: "idle", items: [], total: 0, limit: 50, offset: 0, error: "" });
   const [catalogSearch, setCatalogSearch] = useState("");
@@ -310,15 +492,33 @@ export function App() {
   const [activeCategory, setActiveCategory] = useState(ROADMAP_CATEGORIES[0].key);
   const [draggingProgramId, setDraggingProgramId] = useState(null);
   const [layoutNotice, setLayoutNotice] = useState("");
+  const [feedback, setFeedback] = useState({ status: "idle", items: [], error: "" });
+  const [feedbackRefresh, setFeedbackRefresh] = useState(0);
+  const [selectedFeedbackProgramId, setSelectedFeedbackProgramId] = useState(null);
+  const [feedbackDraft, setFeedbackDraft] = useState("");
+  const [reworkDraft, setReworkDraft] = useState("");
+  const [leadPassword, setLeadPassword] = useState("");
+  const [feedbackSession, setFeedbackSession] = useState({ status: "idle", authenticated: false });
+  const [feedbackMutation, setFeedbackMutation] = useState({ status: "idle", error: "" });
   const libraryHeading = useRef(null);
   const roadmapHeading = useRef(null);
   const catalogHeading = useRef(null);
+  const tierHeading = useRef(null);
   const moveFocus = useRef(false);
   const layout = useMemo(() => buildRoadmapLayout(document), [document]);
   const documentSignature = useMemo(() => JSON.stringify(document), [document]);
+  const documentTier = resolveRoadmapTier(document);
+  const allowedCategories = useMemo(() => allowedCategoriesForTier(documentTier), [documentTier]);
+  const allowedCategoryKeys = useMemo(() => new Set(allowedCategories.map(({ key }) => key)), [allowedCategories]);
+  const firstAllowedCategory = allowedCategories[0].key;
   const isDirty = screen === "editor" && documentSignature !== savedSignature;
   const hasUnsavedWork = isDirty || catalogFormDirty;
   const currentRuntime = useMemo(() => detectPdfRuntime(), []);
+  const feedbackByProgram = useMemo(() => Object.fromEntries(feedback.items.map((item) => [item.programId, item])), [feedback.items]);
+  const selectedFeedbackThread = selectedFeedbackProgramId ? feedbackByProgram[selectedFeedbackProgramId] : null;
+  const selectedFeedbackProgram = selectedFeedbackProgramId
+    ? document.programs.find((program) => program.id === selectedFeedbackProgramId)
+    : null;
 
   useEffect(() => {
     if (screen !== "editor") return undefined;
@@ -329,6 +529,10 @@ export function App() {
     });
     return () => { current = false; };
   }, [document, screen]);
+
+  useEffect(() => {
+    setPptxState((current) => current.status === "exporting" ? current : EMPTY_PPTX_STATE);
+  }, [documentSignature]);
 
   useEffect(() => {
     if (screen !== "library") return undefined;
@@ -360,7 +564,7 @@ export function App() {
   useEffect(() => {
     if (!moveFocus.current) return;
     moveFocus.current = false;
-    (screen === "library" ? libraryHeading : mode === "roadmap" ? roadmapHeading : catalogHeading).current?.focus();
+    (screen === "library" ? libraryHeading : screen === "tier" ? tierHeading : mode === "roadmap" ? roadmapHeading : catalogHeading).current?.focus();
   }, [mode, screen]);
 
   useEffect(() => {
@@ -387,7 +591,7 @@ export function App() {
 
     const params = new URLSearchParams({ limit: "50", offset: String(catalogOffset) });
     if (catalogQuery) params.set("q", catalogQuery);
-    params.set("category", catalogCategory);
+    params.set("category", allowedCategoryKeys.has(catalogCategory) ? catalogCategory : firstAllowedCategory);
     catalogIndustries.forEach((value) => params.append("industry", value));
     catalogRegions.forEach((value) => params.append("region", value));
     fetch(`/api/catalog-programs?${params}`, { signal: controller.signal, headers: { accept: "application/json" } })
@@ -402,19 +606,109 @@ export function App() {
       });
 
     return () => controller.abort();
-  }, [screen, mode, catalogQuery, catalogCategory, catalogIndustries, catalogRegions, catalogOffset, catalogRefresh]);
+  }, [screen, mode, catalogQuery, catalogCategory, catalogIndustries, catalogRegions, catalogOffset, catalogRefresh, allowedCategoryKeys, firstAllowedCategory]);
+
+  useEffect(() => {
+    if (screen !== "editor" || mode !== "roadmap") return undefined;
+    const controller = new AbortController();
+    setFeedbackSession((current) => ({ ...current, status: "loading" }));
+    fetch("/api/feedback-auth/session", {
+      signal: controller.signal,
+      credentials: "same-origin",
+      headers: { accept: "application/json" },
+    })
+      .then(async (response) => {
+        const data = await readApiJson(response);
+        if (!response.ok) throw new Error(data.error || "팀장 인증 상태를 확인하지 못했습니다.");
+        return data;
+      })
+      .then((data) => setFeedbackSession({ status: "ready", authenticated: Boolean(data.authenticated) }))
+      .catch((error) => {
+        if (error.name !== "AbortError") setFeedbackSession({ status: "error", authenticated: false });
+      });
+    return () => controller.abort();
+  }, [screen, mode]);
+
+  useEffect(() => {
+    if (screen !== "editor" || mode !== "roadmap" || !roadmapId) {
+      setFeedback({ status: "idle", items: [], error: "" });
+      return undefined;
+    }
+    const controller = new AbortController();
+    setFeedback((current) => ({ ...current, status: current.items.length ? "refreshing" : "loading", error: "" }));
+    fetch(`/api/roadmaps/${encodeURIComponent(roadmapId)}/feedback`, {
+      signal: controller.signal,
+      credentials: "same-origin",
+      headers: { accept: "application/json" },
+    })
+      .then(async (response) => {
+        const data = await readApiJson(response);
+        if (!response.ok) throw new Error(data.error || "피드백을 불러오지 못했습니다.");
+        return data;
+      })
+      .then((data) => setFeedback({ status: "ready", items: data.items || [], error: "" }))
+      .catch((error) => {
+        if (error.name !== "AbortError") setFeedback((current) => ({ ...current, status: "error", error: error.message }));
+      });
+    return () => controller.abort();
+  }, [screen, mode, roadmapId, feedbackRefresh]);
+
+  useEffect(() => {
+    if (!selectedFeedbackProgramId) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") {
+        setSelectedFeedbackProgramId(null);
+        setFeedbackDraft("");
+        setReworkDraft("");
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [selectedFeedbackProgramId]);
+
+  const resetFeedbackUi = () => {
+    setSelectedFeedbackProgramId(null);
+    setFeedbackDraft("");
+    setReworkDraft("");
+    setLeadPassword("");
+    setFeedbackMutation({ status: "idle", error: "" });
+  };
 
   const startNewRoadmap = () => {
-    const blank = { clientName: "", programs: [] };
+    setRoadmapMutation({ status: "idle", error: "", message: "" });
+    setCatalogForm(null);
+    setCatalogFormDirty(false);
+    resetFeedbackUi();
+    moveFocus.current = true;
+    setScreen("tier");
+  };
+
+  const createRoadmapWithTier = (tier) => {
+    const firstCategory = allowedCategoriesForTier(tier)[0].key;
+    const blank = { tier, clientName: "", programs: [] };
     setDocument(blank);
     setRoadmapId(null);
     setSavedSignature(JSON.stringify(blank));
     setRoadmapMutation({ status: "idle", error: "", message: "" });
     setCatalogForm(null);
     setCatalogFormDirty(false);
+    setActiveCategory(firstCategory);
+    setCatalogCategory(firstCategory);
+    setCatalogOffset(0);
     setMode("roadmap");
+    resetFeedbackUi();
     moveFocus.current = true;
     setScreen("editor");
+  };
+
+  const cancelTierSelection = () => {
+    setDocument(EMPTY_ROADMAP);
+    setRoadmapId(null);
+    setSavedSignature(JSON.stringify(EMPTY_ROADMAP));
+    setRoadmapMutation({ status: "idle", error: "", message: "" });
+    resetFeedbackUi();
+    moveFocus.current = true;
+    setScreen("library");
   };
 
   const openRoadmap = async (item) => {
@@ -430,7 +724,12 @@ export function App() {
       setRoadmapMutation({ status: "idle", error: "", message: "" });
       setCatalogForm(null);
       setCatalogFormDirty(false);
+      const nextFirstCategory = allowedCategoriesForTier(resolveRoadmapTier(data.item.document))[0].key;
+      setActiveCategory(nextFirstCategory);
+      setCatalogCategory(nextFirstCategory);
+      setCatalogOffset(0);
       setMode("roadmap");
+      resetFeedbackUi();
       moveFocus.current = true;
       setScreen("editor");
     } catch (error) {
@@ -465,6 +764,7 @@ export function App() {
     if (hasUnsavedWork && !window.confirm("저장하지 않은 변경사항이 있습니다. 로드맵 목록으로 이동할까요?")) return;
     setCatalogForm(null);
     setCatalogFormDirty(false);
+    resetFeedbackUi();
     setRoadmapRefresh((current) => current + 1);
     moveFocus.current = true;
     setScreen("library");
@@ -498,12 +798,14 @@ export function App() {
     }
     moveFocus.current = true;
     setMode(nextMode);
+    if (nextMode !== "roadmap") resetFeedbackUi();
   };
 
   const updateProgram = (id, patch) => setDocument((current) => ({
     ...current,
     programs: current.programs.map((program) => {
       if (program.id !== id) return program;
+      if (patch.category && !allowedCategoryKeys.has(patch.category)) return program;
       const next = { ...program, ...patch };
       if (patch.category && patch.category !== program.category) delete next.laneIndex;
       return next;
@@ -511,16 +813,21 @@ export function App() {
   }));
 
   const addProgram = () => setDocument((current) => {
+    const category = allowedCategoryKeys.has(activeCategory) ? activeCategory : firstAllowedCategory;
     const nextSequence = current.programs.reduce((max, program) => Math.max(max, program.sequence), -1) + 1;
     return {
       ...current,
       programs: [...current.programs, {
-        id: globalThis.crypto.randomUUID(), category: activeCategory, title: "", startMonth: 1, endMonth: 1, amountKrw: null, sequence: nextSequence,
+        id: globalThis.crypto.randomUUID(), category, title: "", startMonth: 1, endMonth: 1, amountKrw: null, sequence: nextSequence,
       }],
     };
   });
 
   const addCatalogProgram = (program) => {
+    if (!allowedCategoryKeys.has(program.category)) {
+      setCatalogNotice({ tone: "error", message: "This category is not available for the selected roadmap tier." });
+      return;
+    }
     setDocument((current) => {
       const nextSequence = current.programs.reduce((max, item) => Math.max(max, item.sequence), -1) + 1;
       return { ...current, programs: [...current.programs, copyCatalogProgram(program, nextSequence)] };
@@ -534,7 +841,7 @@ export function App() {
   }));
 
   const moveProgram = (programId, targetLaneIndex) => {
-    const result = moveProgramToLane({ programs: document.programs, programId, targetLaneIndex });
+    const result = moveProgramToLane({ programs: document.programs, programId, targetLaneIndex, tier: documentTier });
     if (!result.ok) {
       setLayoutNotice("해당 행에는 배치할 수 없습니다.");
       return;
@@ -551,6 +858,132 @@ export function App() {
   };
 
   const endDrag = () => setDraggingProgramId(null);
+
+  const openProgramFeedback = (programId) => {
+    if (draggingProgramId || (roadmapId && feedback.status === "loading")) return;
+    setSelectedFeedbackProgramId(programId);
+    setFeedbackDraft("");
+    setReworkDraft("");
+    setFeedbackMutation({ status: "idle", error: "" });
+    if (feedbackByProgram[programId]) {
+      requestAnimationFrame(() => globalThis.document.getElementById("feedback-panel-heading")?.focus());
+    }
+  };
+
+  const closeProgramFeedback = () => {
+    const programId = selectedFeedbackProgramId;
+    resetFeedbackUi();
+    requestAnimationFrame(() => globalThis.document.querySelector(`[data-program-id="${programId}"] .roadmap-event__main`)?.focus());
+  };
+
+  const authenticateFeedbackLead = async (event) => {
+    event?.preventDefault();
+    if (!leadPassword) {
+      setFeedbackMutation({ status: "error", error: "팀장 비밀번호를 입력해 주세요." });
+      return false;
+    }
+    setFeedbackMutation({ status: "saving", error: "" });
+    try {
+      const response = await fetch("/api/feedback-auth/session", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          "x-aio-feedback-action": "1",
+        },
+        body: JSON.stringify({ password: leadPassword }),
+      });
+      const data = await readApiJson(response);
+      if (!response.ok) throw new Error(data.error || "팀장 인증에 실패했습니다.");
+      setFeedbackSession({ status: "ready", authenticated: true });
+      setLeadPassword("");
+      setFeedbackMutation({ status: "idle", error: "" });
+      return true;
+    } catch (error) {
+      setFeedbackSession({ status: "ready", authenticated: false });
+      setFeedbackMutation({ status: "error", error: error.message || "팀장 인증에 실패했습니다." });
+      return false;
+    }
+  };
+
+  const logoutFeedbackLead = async () => {
+    setFeedbackMutation({ status: "saving", error: "" });
+    try {
+      const response = await fetch("/api/feedback-auth/session", {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: { accept: "application/json", "x-aio-feedback-action": "1" },
+      });
+      const data = await readApiJson(response);
+      if (!response.ok) throw new Error(data.error || "팀장 인증을 해제하지 못했습니다.");
+      setFeedbackSession({ status: "ready", authenticated: false });
+      setLeadPassword("");
+      setFeedbackMutation({ status: "idle", error: "" });
+    } catch (error) {
+      setFeedbackMutation({ status: "error", error: error.message || "팀장 인증을 해제하지 못했습니다." });
+    }
+  };
+
+  const submitInitialFeedback = async (event, programId) => {
+    event.preventDefault();
+    if (!roadmapId) {
+      setFeedbackMutation({ status: "error", error: "로드맵을 저장한 후 피드백을 등록해 주세요." });
+      return;
+    }
+    if (!feedbackDraft.trim()) return;
+    let authenticated = feedbackSession.authenticated;
+    if (!authenticated) authenticated = await authenticateFeedbackLead();
+    if (!authenticated) return;
+
+    setFeedbackMutation({ status: "saving", error: "" });
+    try {
+      const response = await fetch(`/api/roadmaps/${encodeURIComponent(roadmapId)}/feedback`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          "x-aio-feedback-action": "1",
+        },
+        body: JSON.stringify({ programId, text: feedbackDraft.trim() }),
+      });
+      const data = await readApiJson(response);
+      if (response.status === 401) setFeedbackSession({ status: "ready", authenticated: false });
+      if (!response.ok) throw new Error(data.error || "피드백을 등록하지 못했습니다.");
+      setFeedbackDraft("");
+      setFeedbackMutation({ status: "idle", error: "" });
+      setFeedbackRefresh((current) => current + 1);
+    } catch (error) {
+      setFeedbackMutation({ status: "error", error: error.message || "피드백을 등록하지 못했습니다." });
+    }
+  };
+
+  const performFeedbackAction = async (action) => {
+    if (!roadmapId || !selectedFeedbackProgramId) return;
+    if (action === "rework" && !reworkDraft.trim()) return;
+    setFeedbackMutation({ status: "saving", error: "" });
+    try {
+      const response = await fetch(`/api/roadmaps/${encodeURIComponent(roadmapId)}/feedback/${encodeURIComponent(selectedFeedbackProgramId)}`, {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          "x-aio-feedback-action": "1",
+        },
+        body: JSON.stringify({ action, ...(action === "rework" ? { text: reworkDraft.trim() } : {}) }),
+      });
+      const data = await readApiJson(response);
+      if (response.status === 401) setFeedbackSession({ status: "ready", authenticated: false });
+      if (!response.ok) throw new Error(data.error || "피드백 상태를 변경하지 못했습니다.");
+      setReworkDraft("");
+      setFeedbackMutation({ status: "idle", error: "" });
+      setFeedbackRefresh((current) => current + 1);
+    } catch (error) {
+      setFeedbackMutation({ status: "error", error: error.message || "피드백 상태를 변경하지 못했습니다." });
+    }
+  };
 
   const openCatalogForm = (program = null) => {
     setCatalogMutation({ status: "idle", error: "", fields: {} });
@@ -635,6 +1068,30 @@ export function App() {
     setPdfState({ status: "ready", errors: [] });
   };
 
+  const handlePptxExport = async () => {
+    if (pptxState.status === "exporting") return;
+    if (layout.errors.length) {
+      setPptxState({
+        status: "error",
+        error: "입력 또는 배치 오류를 해결한 뒤 PPTX로 내보내 주세요.",
+        message: "",
+      });
+      return;
+    }
+    setPptxState({ status: "exporting", error: "", message: "" });
+    try {
+      const { exportRoadmapPptx } = await import("./pptx-export.js");
+      const fileName = await exportRoadmapPptx({ layout });
+      setPptxState({ status: "success", error: "", message: `${fileName} 다운로드를 시작했습니다.` });
+    } catch (error) {
+      setPptxState({
+        status: "error",
+        error: error?.message || "PPTX 파일을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        message: "",
+      });
+    }
+  };
+
   if (screen === "library") {
     const listBusy = openingRoadmapId !== null || deletingRoadmapId !== null;
     return (
@@ -669,10 +1126,11 @@ export function App() {
           {roadmaps.items.map((item) => {
             const title = item.clientName || "이름 없는 로드맵";
             return (
-              <article className="catalog-row" key={item.id}>
+              <article className="catalog-row catalog-row--roadmap" key={item.id}>
                 <div className="catalog-row__main">
                   <div className="catalog-row__title"><h2>{title}</h2></div>
                   <dl className="catalog-row__meta">
+                    <div><dt>Tier</dt><dd><span className="tier-badge no-print">{tierLabel[resolveRoadmapTier(item)]}</span></dd></div>
                     <div><dt>마지막 저장</dt><dd>{formatSavedAt(item.updatedAt)}</dd></div>
                   </dl>
                 </div>
@@ -692,14 +1150,37 @@ export function App() {
     );
   }
 
+  if (screen === "tier") {
+    return (
+      <main className="tier-choice no-print" aria-labelledby="tier-choice-heading">
+        <div className="tier-choice__panel">
+          <div>
+            <h1 id="tier-choice-heading" ref={tierHeading} tabIndex="-1">로드맵 유형 선택</h1>
+            <p>새 문서에 적용할 유형을 선택하세요. 만든 뒤에는 변경할 수 없습니다.</p>
+          </div>
+          <div className="tier-choice__actions">
+            <button type="button" className="button-primary" onClick={() => createRoadmapWithTier("premium")}>
+              Premium
+            </button>
+            <button type="button" className="button-secondary" onClick={() => createRoadmapWithTier("standard")}>
+              Standard
+            </button>
+          </div>
+          <button type="button" className="button-tertiary" onClick={cancelTierSelection}>취소</button>
+        </div>
+      </main>
+    );
+  }
+
   const printLabel = pdfState.status === "preflighting" ? "PDF 검증 중" : "PDF로 인쇄";
+  const pptxLabel = pptxState.status === "exporting" ? "PPTX 생성 중" : "PPTX 다운로드";
   const preflightOnlyErrors = pdfState.errors.filter((item) => !layout.errors.some((layoutError) => (
     layoutError.code === item.code && layoutError.path === item.path
   )));
   const canGoBack = catalogOffset > 0;
   const canGoForward = catalogOffset + catalog.items.length < catalog.total;
   const hasCatalogFilters = Boolean(catalogQuery || catalogIndustries.length || catalogRegions.length);
-  const activePrograms = document.programs.filter((program) => program.category === activeCategory);
+  const activePrograms = document.programs.filter((program) => program.category === activeCategory && allowedCategoryKeys.has(program.category));
   const draggingProgram = document.programs.find((program) => program.id === draggingProgramId);
 
   return (
@@ -717,6 +1198,11 @@ export function App() {
           <button type="button" onClick={saveRoadmap} disabled={roadmapMutation.status === "saving"}>
             {roadmapMutation.status === "saving" ? "저장 중" : "로드맵 저장"}
           </button>
+          {mode === "roadmap" ? (
+            <button type="button" onClick={handlePptxExport} disabled={pptxState.status === "exporting" || layout.errors.length > 0}>
+              {pptxLabel}
+            </button>
+          ) : null}
           {mode === "roadmap" ? <button type="button" onClick={handlePrint} disabled={pdfState.status !== "ready"}>{printLabel}</button> : null}
         </div>
       </div>
@@ -736,6 +1222,8 @@ export function App() {
           <p className="print-profile no-print">
             현재 {currentRuntime.family} {currentRuntime.major ?? "미확인"} · 출력 기준: Chromium {PDF_RUNTIME.major} · A4 가로 · 100% · 여백 없음 · 배경 그래픽 켬 · 머리글/바닥글 끔
           </p>
+          {pptxState.error ? <p className="pptx-export-status pptx-export-status--error no-print" role="alert">{pptxState.error}</p>
+            : pptxState.message ? <p className="pptx-export-status no-print" role="status">{pptxState.message}</p> : null}
 
           <main className="preview-stage" data-pdf-status={pdfState.status} data-pdf-errors={pdfState.errors.map(({ code }) => code).join(",")}>
             <article className="roadmap-sheet" aria-label={`${layout.document.clientName || "미지정"} 연간 로드맵`}>
@@ -764,7 +1252,7 @@ export function App() {
                             className="roadmap-lane"
                             key={`${section.key}-${laneIndex}`}
                             data-drop-state={draggingProgram?.category === section.key
-                              ? (moveProgramToLane({ programs: document.programs, programId: draggingProgramId, targetLaneIndex: laneIndex }).ok ? "valid" : "invalid")
+                              ? (moveProgramToLane({ programs: document.programs, programId: draggingProgramId, targetLaneIndex: laneIndex, tier: documentTier }).ok ? "valid" : "invalid")
                               : undefined}
                             onDragOver={(event) => {
                               if (draggingProgram?.category === section.key) event.preventDefault();
@@ -780,9 +1268,23 @@ export function App() {
                                 item={item}
                                 key={item.id}
                                 dragging={item.id === draggingProgramId}
+                                selected={item.id === selectedFeedbackProgramId}
+                                thread={feedbackByProgram[item.id]}
+                                composerOpen={item.id === selectedFeedbackProgramId && !feedbackByProgram[item.id]}
+                                composerDraft={feedbackDraft}
+                                leadPassword={leadPassword}
+                                leadAuthenticated={feedbackSession.authenticated}
+                                onLogout={logoutFeedbackLead}
+                                feedbackMutation={feedbackMutation}
+                                roadmapSaved={Boolean(roadmapId)}
                                 onDragStart={startDrag}
                                 onDragEnd={endDrag}
                                 onMove={moveProgram}
+                                onOpen={openProgramFeedback}
+                                onDraftChange={setFeedbackDraft}
+                                onPasswordChange={setLeadPassword}
+                                onComposerSubmit={submitInitialFeedback}
+                                onSaveRoadmap={saveRoadmap}
                               />
                             ))}
                           </div>
@@ -804,9 +1306,16 @@ export function App() {
             </article>
           </main>
           {layoutNotice ? <p className="layout-notice no-print" role="status" aria-live="polite">{layoutNotice}</p> : null}
+          {feedback.error ? (
+            <div className="feedback-load-error catalog-notice catalog-notice--error no-print" role="alert">
+              <span>{feedback.error}</span>
+              <button type="button" onClick={() => setFeedbackRefresh((current) => current + 1)}>다시 시도</button>
+            </div>
+          ) : null}
 
           <section className="authoring-panel no-print" aria-labelledby="roadmap-editor-heading">
             <h2 id="roadmap-editor-heading" ref={roadmapHeading} tabIndex="-1">로드맵 편집</h2>
+            <p className="tier-badge tier-badge--editor no-print" aria-label="로드맵 유형">{tierLabel[documentTier]}</p>
             <div className="authoring-header">
               <label>
                 <span>클라이언트명</span>
@@ -815,7 +1324,7 @@ export function App() {
               <button type="button" onClick={addProgram}>사업 직접 추가</button>
             </div>
             <nav className="category-tabs" aria-label="사업 구분">
-              {ROADMAP_CATEGORIES.map(({ key, label }) => (
+              {allowedCategories.map(({ key, label }) => (
                 <button type="button" key={key} aria-pressed={activeCategory === key} onClick={() => setActiveCategory(key)}>{label}</button>
               ))}
             </nav>
@@ -827,6 +1336,7 @@ export function App() {
                 <ProgramEditor
                   key={program.id}
                   program={program}
+                  categories={allowedCategories}
                   onChange={(patch) => updateProgram(program.id, patch)}
                   onDelete={() => deleteProgram(program.id)}
                 />
@@ -843,6 +1353,21 @@ export function App() {
               </ul>
             )}
           </section>
+
+          <FeedbackPanel
+            program={selectedFeedbackProgram}
+            thread={selectedFeedbackThread}
+            leadAuthenticated={feedbackSession.authenticated}
+            leadPassword={leadPassword}
+            reworkDraft={reworkDraft}
+            mutation={feedbackMutation}
+            onClose={closeProgramFeedback}
+            onPasswordChange={setLeadPassword}
+            onAuthenticate={authenticateFeedbackLead}
+            onLogout={logoutFeedbackLead}
+            onReworkDraftChange={setReworkDraft}
+            onAction={performFeedbackAction}
+          />
         </>
       ) : (
         <section className="catalog-panel no-print" aria-labelledby="catalog-heading">
@@ -884,7 +1409,7 @@ export function App() {
                 <button type="submit" className="button-secondary">검색</button>
               </form>
               <nav className="category-tabs catalog-category-tabs" aria-label="사업 카탈로그 구분">
-                {ROADMAP_CATEGORIES.map(({ key, label }) => (
+                {allowedCategories.map(({ key, label }) => (
                   <button type="button" key={key} aria-pressed={catalogCategory === key} onClick={() => {
                     setCatalogCategory(key);
                     setCatalogOffset(0);
