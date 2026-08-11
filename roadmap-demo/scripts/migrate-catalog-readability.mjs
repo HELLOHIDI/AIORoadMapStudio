@@ -6,17 +6,26 @@ import { classifyCatalogReadability } from "../catalog-readability.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SITE = process.env.CATALOG_SITE ?? "https://aio-roadmap-studio.fbgmlwo1029384756.chatgpt.site";
+const AUTH_TOKEN = process.env.CATALOG_AUTH_TOKEN;
 const APPLY = process.argv.includes("--apply");
 const REPORT_PATH = path.join(ROOT, "output", APPLY ? "catalog-readability-apply.json" : "catalog-readability-dry-run.json");
 const DRY_RUN_PATH = path.join(ROOT, "output", "catalog-readability-dry-run.json");
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const siteUrl = new URL(SITE);
+if (AUTH_TOKEN && (siteUrl.protocol !== "https:" || !siteUrl.hostname.endsWith(".chatgpt.site"))) {
+  throw new Error("CATALOG_AUTH_TOKEN can only be used with an HTTPS Sites hostname.");
+}
+
 async function request(pathname, init = {}, attempts = 5) {
   let error;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      const response = await fetch(`${SITE}${pathname}`, init);
+      const response = await fetch(`${SITE}${pathname}`, {
+        ...init,
+        headers: { ...init.headers, ...(AUTH_TOKEN ? { "OAI-Sites-Authorization": `Bearer ${AUTH_TOKEN}` } : {}) },
+      });
       const text = await response.text();
       if (!response.ok) throw new Error(`${response.status}: ${text.slice(0, 300)}`);
       return text ? JSON.parse(text) : null;
@@ -85,7 +94,10 @@ async function main() {
   }
   await fs.mkdir(path.dirname(REPORT_PATH), { recursive: true });
   await fs.writeFile(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`);
-  console.log(JSON.stringify({ ...report, changes: report.changes.slice(0, 10), preserved: report.preserved.slice(0, 10) }, null, 2));
+  console.log(JSON.stringify({
+    mode: report.mode, total: report.total, counts: report.counts, changes: report.changes.length,
+    preserved: report.preserved.length, applied: report.applied ?? 0, skipped: report.skipped?.length ?? 0,
+  }, null, 2));
 }
 
 await main();
