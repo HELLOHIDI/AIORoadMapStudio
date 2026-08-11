@@ -80,6 +80,11 @@ function createDatabase() {
     if (hasSearch) index += 2;
     const hasCategory = statement.includes("category = ?");
     const category = hasCategory ? params[index++] : "";
+    const hasSupportYear = statement.includes("support_year = ?");
+    const supportYear = hasSupportYear ? params[index++] : null;
+    const hasMonthRange = statement.includes("start_month <= ? AND end_month >= ?");
+    const endMonth = hasMonthRange ? params[index++] : null;
+    const startMonth = hasMonthRange ? params[index++] : null;
     const hasIndustries = statement.includes("json_each(industries_json)");
     const industryCount = hasIndustries ? (statement.match(/json_each\(industries_json\)[^)]+\)/)?.[0].match(/\?/g) ?? []).length : 0;
     const industries = params.slice(index, index + industryCount);
@@ -93,6 +98,8 @@ function createDatabase() {
       .filter((row) => !query || [row.title, row.target, row.details]
         .some((value) => value.toLowerCase().includes(query)))
       .filter((row) => !category || row.category === category)
+      .filter((row) => supportYear === null || row.supportYear === supportYear)
+      .filter((row) => !hasMonthRange || (row.startMonth <= endMonth && row.endMonth >= startMonth))
       .filter((row) => !industries.length || JSON.parse(row.industriesJson).some((value) => industries.includes(value)))
       .filter((row) => !regions.length || JSON.parse(row.regionsJson).some((value) => regions.includes(value)))
       .filter((row) => !businessSubcategories.length || inferBusinessSubcategories({ ...row, mainPackage: row.mainPackage === 1 })
@@ -134,15 +141,15 @@ function createDatabase() {
                 return { meta: { changes: 1 } };
               }
               if (statement.startsWith("INSERT")) {
-                const [id, category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, createdAt, updatedAt] = params;
-                rows.push({ id, category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, createdAt, updatedAt });
+                const [id, category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, supportYear, createdAt, updatedAt] = params;
+                rows.push({ id, category, title, link, amountKrw, supportYear, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, createdAt, updatedAt });
                 return { meta: { changes: 1 } };
               }
               if (statement.startsWith("UPDATE")) {
-                const [category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, updatedAt, id] = params;
+                const [category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, supportYear, updatedAt, id] = params;
                 const row = rows.find((item) => item.id === id);
                 if (!row) return { meta: { changes: 0 } };
-                Object.assign(row, { category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, updatedAt });
+                Object.assign(row, { category, title, link, amountKrw, supportYear, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, updatedAt });
                 return { meta: { changes: 1 } };
               }
               if (statement.startsWith("DELETE")) {
@@ -219,6 +226,7 @@ const catalogInput = {
   title: "2026년 해양수산 오픈이노베이션 사업",
   link: "https://scceioi.kr/2026/kimst/index.php#mEnter",
   amountKrw: 30_000_000,
+  supportYear: 2026,
   startMonth: 6,
   endMonth: 7,
   target: "해양 분야 스타트업",
