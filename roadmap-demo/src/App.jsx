@@ -545,8 +545,8 @@ function CatalogForm({ categories, form, state, options, onChange, onCancel, onC
           <FieldError errors={state.fields} name="link" />
         </label>
         <label>
-          <span>최대 지원금액(원)</span>
-          <input type="number" min="2000" max="2100" step="1" value={values.supportYear} onChange={(event) => change("supportYear", event.target.value)} aria-invalid={invalid("supportYear")} required />
+          <span>지원연도</span>
+          <input aria-label="지원연도" type="number" min="2000" max="2100" step="1" value={values.supportYear} onChange={(event) => change("supportYear", event.target.value)} aria-invalid={invalid("supportYear")} required />
           <FieldError errors={state.fields} name="supportYear" />
         </label>
         <label>
@@ -1150,7 +1150,7 @@ export function App() {
     setCatalogForm(program ? {
       mode: "edit",
       id: program.id,
-      values: { ...program, amountKrw: program.amountKrw ?? "" },
+      values: { ...program, supportYear: program.supportYear ?? currentSupportYear, amountKrw: program.amountKrw ?? "" },
     } : { mode: "create", values: { ...EMPTY_CATALOG_PROGRAM } });
   };
 
@@ -1337,7 +1337,8 @@ export function App() {
   )));
   const canGoBack = catalogOffset > 0;
   const canGoForward = catalogOffset + catalog.items.length < catalog.total;
-  const hasCatalogFilters = Boolean(catalogQuery || catalogIndustries.length || catalogRegions.length || catalogBusinessSubcategories.length);
+  const catalogPeriodChanged = catalogSupportYear !== String(currentSupportYear) || catalogStartMonth !== "1" || catalogEndMonth !== "12";
+  const hasCatalogFilters = Boolean(catalogQuery || catalogPeriodChanged || catalogIndustries.length || catalogRegions.length || catalogBusinessSubcategories.length);
   const activePrograms = document.programs.filter((program) => program.category === activeCategory && allowedCategoryKeys.has(program.category));
   const draggingProgram = document.programs.find((program) => program.id === draggingProgramId);
 
@@ -1566,6 +1567,35 @@ export function App() {
                   <span>사업 검색</span>
                   <input type="search" value={catalogSearch} onChange={(event) => setCatalogSearch(event.target.value)} placeholder="사업명, 지원대상, 지원내용" />
                 </label>
+                <label className="catalog-toolbar__year">
+                  <span>지원연도</span>
+                  <input type="number" min="2000" max="2100" step="1" value={catalogSupportYear} onChange={(event) => {
+                    setCatalogSupportYear(event.target.value);
+                    setCatalogOffset(0);
+                  }} required />
+                </label>
+                <label className="catalog-toolbar__month">
+                  <span>시작월</span>
+                  <select value={catalogStartMonth} onChange={(event) => {
+                    const next = Number(event.target.value);
+                    setCatalogStartMonth(String(next));
+                    if (next > Number(catalogEndMonth)) setCatalogEndMonth(String(next));
+                    setCatalogOffset(0);
+                  }}>
+                    {months.map((month, index) => <option key={month} value={index + 1}>{month}</option>)}
+                  </select>
+                </label>
+                <label className="catalog-toolbar__month">
+                  <span>종료월</span>
+                  <select value={catalogEndMonth} onChange={(event) => {
+                    const next = Number(event.target.value);
+                    setCatalogEndMonth(String(next));
+                    if (next < Number(catalogStartMonth)) setCatalogStartMonth(String(next));
+                    setCatalogOffset(0);
+                  }}>
+                    {months.map((month, index) => <option key={month} value={index + 1}>{month}</option>)}
+                  </select>
+                </label>
                 <button type="submit" className="button-secondary">검색</button>
               </form>
               <nav className="category-tabs catalog-category-tabs" aria-label="사업 카탈로그 구분">
@@ -1594,15 +1624,20 @@ export function App() {
                   setCatalogOffset(0);
                 }} />
               </section>
-              {catalogIndustries.length || catalogRegions.length || catalogBusinessSubcategories.length ? (
+              {hasCatalogFilters ? (
                 <div className="catalog-filter-actions">
-                  <span>각 필터 안에서는 하나 이상, 필터 간에는 모든 조건을 만족하는 사업을 찾습니다.</span>
+                  <span>{formatCatalogPeriod({ supportYear: catalogSupportYear, startMonth: catalogStartMonth, endMonth: catalogEndMonth })} 포함 사업을 찾습니다.</span>
                   <button type="button" className="button-tertiary" onClick={() => {
+                    setCatalogSearch("");
+                    setCatalogQuery("");
+                    setCatalogSupportYear(String(currentSupportYear));
+                    setCatalogStartMonth("1");
+                    setCatalogEndMonth("12");
                     setCatalogBusinessSubcategories([]);
                     setCatalogIndustries([]);
                     setCatalogRegions([]);
                     setCatalogOffset(0);
-                  }}>필터 초기화</button>
+                  }}>검색·필터 초기화</button>
                 </div>
               ) : null}
 
@@ -1639,7 +1674,7 @@ export function App() {
                       </div>
                       <dl className="catalog-row__meta">
                         <div><dt>지원금액</dt><dd>{program.amountKrw == null ? "금액 미정" : `최대 ${formatAmount(program.amountKrw)}`}</dd></div>
-                        <div><dt>지원기간</dt><dd>{program.startMonth}~{program.endMonth}월</dd></div>
+                        <div><dt>지원기간</dt><dd>{formatCatalogPeriod(program, Number(catalogSupportYear) || currentSupportYear)}</dd></div>
                         {program.businessSubcategories?.length ? <div><dt>세부 분류</dt><dd>{program.businessSubcategories.map((tag) => <span key={tag}>{tag}</span>)}</dd></div> : null}
                         {program.industries?.length ? <div><dt>업종</dt><dd>{program.industries.map((tag) => <span key={tag}>{tag}</span>)}</dd></div> : null}
                         {program.regions?.length ? <div><dt>지역</dt><dd>{program.regions.map((tag) => <span key={tag}>{tag}</span>)}</dd></div> : null}

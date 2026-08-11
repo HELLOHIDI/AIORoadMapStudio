@@ -203,6 +203,7 @@ test("copies a catalog master into an independent roadmap program", () => {
   assert.equal(copy.id, "roadmap-copy-1");
   assert.notEqual(copy.id, master.id);
   assert.equal(copy.sequence, 4);
+  assert.equal("supportYear" in copy, false);
   copy.title = "클라이언트용 수정";
   assert.equal(master.title, "원본 사업");
 });

@@ -135,6 +135,9 @@ test("keeps shared tag creation and catalog filters wired to the server", () => 
   assert.ok(app.includes('params.append("industry", value)'));
   assert.ok(app.includes('params.append("region", value)'));
   assert.ok(app.includes('params.append("businessSubcategory", value)'));
+  assert.ok(app.includes('params.set("supportYear", catalogSupportYear)'));
+  assert.ok(app.includes('params.set("startMonth", catalogStartMonth)'));
+  assert.ok(app.includes('params.set("endMonth", catalogEndMonth)'));
   assert.ok(app.includes('onCreate={form.mode === "create"'));
   assert.ok(app.includes('“${normalizedQuery}” 공용 선택지로 추가'));
   assert.match(app, /<TagPicker collapsible label="업종 필터"/);
@@ -142,6 +145,8 @@ test("keeps shared tag creation and catalog filters wired to the server", () => 
   assert.match(app, /<TagPicker collapsible label="사업화 세부 분류"/);
   assert.ok(app.includes('className="catalog-main-package-toggle"'));
   assert.ok(app.includes("program.businessSubcategories?.length"));
+  assert.ok(app.includes("formatCatalogPeriod(program, Number(catalogSupportYear) || currentSupportYear)"));
+  assert.ok(app.includes("setCatalogSupportYear(String(currentSupportYear))"));
   assert.ok(app.includes('aria-label="대한민국 행정구역별 지역 필터"'));
   assert.ok(app.includes('<details className="tag-picker-disclosure">'));
   assert.match(styles, /\.catalog-filters\s*\{/);
