@@ -9,6 +9,7 @@ import {
 } from "../catalog-options.js";
 import { ADMINISTRATIVE_REGION_GROUPS, groupAdministrativeRegionOptions, inferIndustries, inferRegions } from "../catalog-tag-policy.js";
 import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, formatCatalogBulletText, parseCatalogText } from "../src/catalog.js";
+import { classifyCatalogReadability } from "../catalog-readability.js";
 
 test("keeps consulting out of the shared catalog categories", () => {
   assert.deepEqual(CATALOG_CATEGORIES.map(({ key }) => key), ["business", "voucher", "ip", "certification"]);
@@ -25,7 +26,7 @@ test("keeps consulting out of the shared catalog categories", () => {
 test("breaks catalog targets and details at spaced bullet hyphens", () => {
   assert.equal(
     formatCatalogBulletText("통합 지원 - 진단 및 컨설팅 - 시제품 제작"),
-    "통합 지원\n- 진단 및 컨설팅\n- 시제품 제작",
+    "통합 지원 - 진단 및 컨설팅 - 시제품 제작",
   );
   assert.equal(
     formatCatalogBulletText("- 첫 번째 항목\n - 두 번째 항목"),
@@ -181,6 +182,42 @@ test("groups region filters under the 17 first-level administrative divisions", 
   assert.deepEqual(grouped.groups.find(({ key }) => key === "충남")?.options, ["충남", "부여"]);
   assert.deepEqual(grouped.groups.find(({ key }) => key === "경남")?.options, ["경남", "김해"]);
   assert.deepEqual(grouped.ungrouped, ["호남", "서해"]);
+});
+
+test("normalizes only explicit catalog bullet separators", () => {
+  assert.equal(
+    formatCatalogBulletText("  startup business - women-owned business - export candidate  "),
+    "startup business - women-owned business - export candidate",
+  );
+  assert.equal(formatCatalogBulletText("Support cap is 100m KRW; apply once yearly"), "Support cap is 100m KRW; apply once yearly");
+  assert.equal(formatCatalogBulletText("Startup 3 years - 7 years old business"), "Startup 3 years - 7 years old business");
+  assert.equal(formatCatalogBulletText("Seoul or Busan business - women-owned business - export candidate"), "Seoul or Busan business - women-owned business - export candidate");
+  assert.equal(formatCatalogBulletText("• diagnosis\n• consulting"), "- diagnosis\n- consulting");
+  assert.equal(formatCatalogBulletText("\r\n first item\r\n\r\n second item \r\n"), "first item\nsecond item");
+});
+
+test("normalizes catalog payload text without changing a roadmap copy", () => {
+  const payload = catalogPayload({
+    category: "business", title: "Program", link: "https://example.test", amountKrw: null, startMonth: 1, endMonth: 1,
+    target: "business - youth business - women-owned business", details: "diagnosis - consulting - mentoring", industries: [], regions: [], mainPackage: false,
+  });
+  assert.equal(payload.target, "business - youth business - women-owned business");
+  assert.equal(payload.details, "diagnosis - consulting - mentoring");
+  const copy = copyCatalogProgram({ ...payload, id: "catalog-1" }, 1, () => "roadmap-1");
+  assert.equal(copy.target, payload.target);
+  assert.equal(copy.details, payload.details);
+});
+
+test("classifies safe rewrites and ambiguous prose conservatively", () => {
+  assert.deepEqual(classifyCatalogReadability("• business\n• youth business"), {
+    kind: "safe-rewrite", value: "- business\n- youth business",
+  });
+  assert.deepEqual(classifyCatalogReadability("Support cap is 100m KRW; apply once yearly"), {
+    kind: "ambiguous-keep-prose", value: "Support cap is 100m KRW; apply once yearly",
+  });
+  assert.deepEqual(classifyCatalogReadability("\r\n business \r\n"), {
+    kind: "whitespace-only", value: "business",
+  });
 });
 
 test("copies a catalog master into an independent roadmap program", () => {

@@ -8,6 +8,7 @@ import {
   REGION_OPTIONS,
   inferBusinessSubcategories,
 } from "../catalog-options.js";
+import { formatCatalogBulletText } from "../catalog-readability.js";
 
 const CATALOG_PATH = "/api/catalog-programs";
 const CATALOG_OPTIONS_PATH = "/api/catalog-options";
@@ -301,8 +302,8 @@ function validateCatalogProgramWithOptions(input, options) {
     amountKrw: input.amountKrw,
     startMonth: input.startMonth,
     endMonth: input.endMonth,
-    target: cleanString(input.target),
-    details: cleanString(input.details),
+    target: formatCatalogBulletText(input.target),
+    details: formatCatalogBulletText(input.details),
     industries: cleanTags(input.industries, options.industries, "industries", fields),
     regions: cleanTags(input.regions, options.regions, "regions", fields),
     mainPackage: input.mainPackage ?? false,

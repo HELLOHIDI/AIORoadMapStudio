@@ -327,6 +327,22 @@ test("validates and persists catalog CRUD through D1", async () => {
   assert.equal(DB.rows.length, 0);
 });
 
+test("normalizes catalog support text before Worker validation and persistence", async () => {
+  const DB = createDatabase();
+  const request = (path, options) => worker.fetch(new Request(`https://example.test${path}`, options), { DB });
+  const response = await request("/api/catalog-programs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...catalogInput, target: "• business\n• youth business", details: "• diagnosis\n• consulting" }),
+  });
+  const created = await response.json();
+  assert.equal(response.status, 201);
+  assert.equal(created.item.target, "- business\n- youth business");
+  assert.equal(created.item.details, "- diagnosis\n- consulting");
+  assert.equal(DB.rows[0].target, created.item.target);
+  assert.equal(DB.rows[0].details, created.item.details);
+});
+
 test("recomputes automatic business tags while preserving manual main package", async () => {
   const DB = createDatabase();
   const request = (path, options) => worker.fetch(new Request(`https://example.test${path}`, options), { DB });

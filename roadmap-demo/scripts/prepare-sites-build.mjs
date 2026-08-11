@@ -10,6 +10,7 @@ const worker = path.join(root, "worker", "index.js");
 const hosting = path.join(root, ".openai", "hosting.json");
 const migrations = path.join(root, "drizzle");
 const catalogOptions = path.join(root, "catalog-options.js");
+const catalogReadability = path.join(root, "catalog-readability.js");
 const catalogImport = `import {
   BUSINESS_COMPETITION_TERMS,
   BUSINESS_SUBCATEGORY_OPTIONS,
@@ -20,8 +21,9 @@ const catalogImport = `import {
   REGION_OPTIONS,
   inferBusinessSubcategories,
 } from "../catalog-options.js";`;
+const catalogReadabilityImport = 'import { formatCatalogBulletText } from "../catalog-readability.js";';
 
-for (const file of [index, worker, hosting, migrations, catalogOptions]) {
+for (const file of [index, worker, hosting, migrations, catalogOptions, catalogReadability]) {
   if (!existsSync(file)) throw new Error("Missing Sites build input: " + file);
 }
 
@@ -40,9 +42,14 @@ rmSync(path.join(dist, "catalog-options.js"), { force: true });
 rmSync(path.join(dist, "server", "catalog-options.js"), { force: true });
 const workerTemplate = readFileSync(worker, "utf8").replaceAll("\r\n", "\n");
 if (!workerTemplate.includes(catalogImport)) throw new Error("Missing catalog options import in Worker source");
+if (!workerTemplate.includes(catalogReadabilityImport)) throw new Error("Missing catalog readability import in Worker source");
 const catalogOptionsSource = readFileSync(catalogOptions, "utf8").replaceAll("export const ", "const ");
+const catalogReadabilitySource = readFileSync(catalogReadability, "utf8")
+  .replace("export function formatCatalogBulletText", "function formatCatalogBulletText")
+  .replace("export function classifyCatalogReadability", "function classifyCatalogReadability");
 const workerSource = workerTemplate
   .replace(catalogImport, catalogOptionsSource)
+  .replace(catalogReadabilityImport, catalogReadabilitySource)
   .replace("export function inferBusinessSubcategories", "function inferBusinessSubcategories")
   .replace("export function validateCatalogProgram", "function validateCatalogProgram")
   .replace("export function validateRoadmapDocumentForStorage", "function validateRoadmapDocumentForStorage");

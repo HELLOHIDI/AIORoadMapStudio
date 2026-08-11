@@ -1,4 +1,7 @@
 import { ROADMAP_CATEGORIES } from "./roadmap-policy.js";
+import { formatCatalogBulletText } from "../catalog-readability.js";
+
+export { formatCatalogBulletText };
 
 export const CATALOG_CATEGORIES = Object.freeze(
   ROADMAP_CATEGORIES.filter(({ key }) => key !== "consulting"),
@@ -23,15 +26,6 @@ const amountUnits = { 원: 1, 만원: 10_000, 백만원: 1_000_000, 천만원: 1
 
 function uniqueStrings(values) {
   return [...new Set((Array.isArray(values) ? values : []).map((value) => value.trim()).filter(Boolean))];
-}
-
-export function formatCatalogBulletText(value) {
-  return String(value ?? "")
-    .replace(/\r\n?/g, "\n")
-    .replace(/[ \t]*\n[ \t]*/g, "\n")
-    .replace(/(^|[ \t]+)-[ \t]+(?=\S)/g, (match, prefix) => `${prefix ? "\n" : ""}- `)
-    .replace(/\n{2,}/g, "\n")
-    .trim();
 }
 
 function parseAmount(value) {
@@ -120,8 +114,8 @@ export function catalogPayload(values) {
     amountKrw: values.amountKrw === "" ? null : Number(values.amountKrw),
     startMonth: Number(values.startMonth),
     endMonth: Number(values.endMonth),
-    target: values.target.trim(),
-    details: values.details.trim(),
+    target: formatCatalogBulletText(values.target),
+    details: formatCatalogBulletText(values.details),
     industries: uniqueStrings(values.industries),
     regions: uniqueStrings(values.regions),
     mainPackage: values.category === "business" && values.mainPackage === true,
