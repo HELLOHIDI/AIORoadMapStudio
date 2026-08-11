@@ -6,8 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        One Ultragoal request uses one Issue, one branch, and one PR.
-        This Issue closes only after private Sites deployment evidence is posted.
+        Follow the authoritative delivery lifecycle in `roadmap-demo/AGENTS.md`.
   - type: textarea
     id: objective
     attributes:
@@ -41,9 +40,5 @@ body:
     attributes:
       label: Ultragoal checklist
       options:
-        - label: I will use one branch and one PR for this Issue.
-          required: true
-        - label: I will record pre-merge validation in the PR.
-          required: true
-        - label: I will post private Sites deployment evidence before closing this Issue.
+        - label: I will complete the delivery steps in `roadmap-demo/AGENTS.md`.
           required: true

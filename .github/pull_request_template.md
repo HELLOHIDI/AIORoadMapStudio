@@ -17,4 +17,4 @@ Refs #<issue-number>
 
 - [ ] Sites handoff pending
 
-This PR records pre-merge evidence only. Do not add a merged SHA, deployment ID, deployment URL, or Issue-close evidence here.
+Follow the authoritative delivery lifecycle in `roadmap-demo/AGENTS.md`.
