@@ -203,6 +203,8 @@ test("keeps category tabs and direct roadmap moves outside print", () => {
   assert.ok(app.includes('category, title: ""'));
   assert.ok(app.includes('draggable'));
   assert.ok(app.includes('onDrop={(event) =>'));
+  assert.ok(app.includes('const deltaMonths = monthWidth ? Math.round((event.clientX - startClientX) / monthWidth) : 0;'));
+  assert.ok(app.includes('dropProgram(event, draggingProgramId, laneIndex)'));
   assert.ok(!app.includes('roadmap-event__handle'));
   assert.ok(app.includes('params.set("category", catalogCategoryKeys.has(catalogCategory) ? catalogCategory : firstCatalogCategory)'));
   assert.ok(app.includes('사업 상세보기'));

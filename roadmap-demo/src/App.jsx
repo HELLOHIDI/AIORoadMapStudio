@@ -59,6 +59,7 @@ function RoadmapEvent({
   roadmapSaved,
   onDragStart,
   onDragEnd,
+  onDragPointerDown,
   onMove,
   onShift,
   onOpen,
@@ -91,7 +92,8 @@ function RoadmapEvent({
         className="roadmap-event__main"
         draggable
         aria-pressed={selected}
-        aria-label={`${item.title}, ${categoryLabel[item.category]}.${unresolved ? " 미해결 피드백 있음." : ""} 위아래 화살표 키로 행 이동`}
+        aria-label={`${item.title}, ${categoryLabel[item.category]}.${unresolved ? " 미해결 피드백 있음." : ""} 드래그로 행 또는 한 달 이동. 화살표 키로도 이동 가능`}
+        onPointerDown={(event) => onDragPointerDown(item.id, event.clientX)}
         onDragStart={(event) => {
           suppressClick.current = true;
           onDragStart(event, item.id);
@@ -623,6 +625,7 @@ export function App() {
   const [deletingId, setDeletingId] = useState(null);
   const [activeCategory, setActiveCategory] = useState(ROADMAP_CATEGORIES[0].key);
   const [draggingProgramId, setDraggingProgramId] = useState(null);
+  const dragStartClientX = useRef(null);
   const [layoutNotice, setLayoutNotice] = useState("");
   const [feedback, setFeedback] = useState({ status: "idle", items: [], error: "" });
   const [feedbackRefresh, setFeedbackRefresh] = useState(0);
@@ -1015,7 +1018,20 @@ export function App() {
     setDraggingProgramId(programId);
   };
 
-  const endDrag = () => setDraggingProgramId(null);
+  const endDrag = () => {
+    dragStartClientX.current = null;
+    setDraggingProgramId(null);
+  };
+
+  const dropProgram = (event, programId, targetLaneIndex) => {
+    const section = layout.sections.find((item) => item.key === document.programs.find((item) => item.id === programId)?.category);
+    const sourceLaneIndex = section?.lanes.findIndex((lane) => lane.some((item) => item.id === programId));
+    const monthWidth = event.currentTarget.getBoundingClientRect().width / 12;
+    const startClientX = dragStartClientX.current?.programId === programId ? dragStartClientX.current.clientX : event.clientX;
+    const deltaMonths = monthWidth ? Math.round((event.clientX - startClientX) / monthWidth) : 0;
+    if (targetLaneIndex === sourceLaneIndex && (deltaMonths === -1 || deltaMonths === 1)) shiftProgram(programId, deltaMonths);
+    else moveProgram(programId, targetLaneIndex);
+  };
 
   const openProgramFeedback = (programId) => {
     if (draggingProgramId || (roadmapId && feedback.status === "loading")) return;
@@ -1418,7 +1434,7 @@ export function App() {
                             }}
                             onDrop={(event) => {
                               event.preventDefault();
-                              if (draggingProgram?.category === section.key) moveProgram(draggingProgramId, laneIndex);
+                              if (draggingProgram?.category === section.key) dropProgram(event, draggingProgramId, laneIndex);
                               endDrag();
                             }}
                           >
@@ -1438,6 +1454,7 @@ export function App() {
                                 roadmapSaved={Boolean(roadmapId)}
                                 onDragStart={startDrag}
                                 onDragEnd={endDrag}
+                                onDragPointerDown={(programId, clientX) => { dragStartClientX.current = { programId, clientX }; }}
                                 onMove={moveProgram}
                                 onShift={shiftProgram}
                                 onOpen={openProgramFeedback}
