@@ -1,0 +1,12 @@
+.omx/
+.tmp/
+deploy-stage/
+outputs/
+tmp/
+**/.omx/
+**/.tmp/
+**/dist/
+**/node_modules/
+**/output/
+**/tmp/
+*.log
