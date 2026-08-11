@@ -39,6 +39,7 @@ test("normalizes a catalog form into the API payload", () => {
     category: "business",
     title: "  해양수산 사업  ",
     link: " https://example.test/notice ",
+    supportYear: "2026",
     amountKrw: "",
     startMonth: "6",
     endMonth: "7",
@@ -50,6 +51,7 @@ test("normalizes a catalog form into the API payload", () => {
     category: "business",
     title: "해양수산 사업",
     link: "https://example.test/notice",
+    supportYear: 2026,
     amountKrw: null,
     startMonth: 6,
     endMonth: 7,
@@ -88,7 +90,7 @@ test("classifies business subcategories independently in display order", () => {
 test("parses the agreed support-program text format without saving it", () => {
   const parsed = parseCatalogText(`[사업화] 2026년 해양수산 오픈이노베이션 사업
 - 링크: https://example.test/notice
-- 지원기간: 6~7월
+- 지원기간: 2026.06~2026.07월
 - 지원금액: 최대 3,000만원
 - 지원대상: 해양 분야 스타트업
 - 지원내용: 테스트 베드 지원
@@ -99,6 +101,7 @@ test("parses the agreed support-program text format without saving it", () => {
       category: "business",
       title: "2026년 해양수산 오픈이노베이션 사업",
       link: "https://example.test/notice",
+      supportYear: 2026,
       startMonth: 6,
       endMonth: 7,
       amountKrw: 30_000_000,
@@ -114,14 +117,14 @@ test("parses the agreed support-program text format without saving it", () => {
 test("keeps incomplete source text in the source-correction path", () => {
   const parsed = parseCatalogText(`[사업화] 테스트 사업
 - 링크: example.test
-- 지원기간: 8~7월`);
+- 지원기간: 2026.08~2026.07월`);
 
   assert.equal(parsed.values.title, "테스트 사업");
   assert.deepEqual(parsed.warnings, [
     "링크에 http 또는 https 주소를 입력해 주세요.",
     "지원대상을 입력해 주세요.",
     "지원내용을 입력해 주세요.",
-    "지원기간을 n~n월 형식으로 확인해 주세요.",
+    "지원기간을 같은 연도의 YYYY.MM~YYYY.MM 형식으로 확인해 주세요.",
     "지원금액을 n만원, n백만원 또는 n억원 형식으로 입력해 주세요.",
   ]);
 });

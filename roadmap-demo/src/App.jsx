@@ -8,6 +8,7 @@ import { detectPdfRuntime, PDF_RUNTIME } from "./pdf-runtime.js";
 import { allowedCategoriesForTier, buildRoadmapLayout, moveProgramToTargetLane, ROADMAP_CATEGORIES, resolveRoadmapTier, shiftProgramByMonths } from "./roadmap-policy.js";
 
 const months = Array.from({ length: 12 }, (_, index) => `${index + 1}월`);
+const currentSupportYear = new Date().getFullYear();
 const categoryLabel = Object.fromEntries(ROADMAP_CATEGORIES.map(({ key, label }) => [key, label]));
 const EMPTY_ROADMAP = Object.freeze({ clientName: "", programs: Object.freeze([]) });
 const EMPTY_PPTX_STATE = Object.freeze({ status: "idle", error: "", message: "" });
@@ -35,6 +36,13 @@ function formatSavedAt(value) {
 
 function formatFeedbackTime(value) {
   return new Date(value).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function formatCatalogPeriod(program, fallbackYear = currentSupportYear) {
+  const year = Number(program.supportYear) || fallbackYear;
+  const start = String(program.startMonth).padStart(2, "0");
+  const end = String(program.endMonth).padStart(2, "0");
+  return `${year}.${start}~${year}.${end}`;
 }
 
 function RoadmapEvent({
@@ -538,6 +546,11 @@ function CatalogForm({ categories, form, state, options, onChange, onCancel, onC
         </label>
         <label>
           <span>최대 지원금액(원)</span>
+          <input type="number" min="2000" max="2100" step="1" value={values.supportYear} onChange={(event) => change("supportYear", event.target.value)} aria-invalid={invalid("supportYear")} required />
+          <FieldError errors={state.fields} name="supportYear" />
+        </label>
+        <label>
+          <span>최대 지원금(원)</span>
           <input type="number" min="1" step="1" value={values.amountKrw} onChange={(event) => change("amountKrw", event.target.value)} aria-invalid={invalid("amountKrw")} placeholder="미정이면 비워두기" />
           <FieldError errors={state.fields} name="amountKrw" />
         </label>
@@ -590,6 +603,9 @@ export function App() {
   const [catalogSearch, setCatalogSearch] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogCategory, setCatalogCategory] = useState(CATALOG_CATEGORIES[0].key);
+  const [catalogSupportYear, setCatalogSupportYear] = useState(String(currentSupportYear));
+  const [catalogStartMonth, setCatalogStartMonth] = useState("1");
+  const [catalogEndMonth, setCatalogEndMonth] = useState("12");
   const [catalogIndustries, setCatalogIndustries] = useState([]);
   const [catalogRegions, setCatalogRegions] = useState([]);
   const [catalogBusinessSubcategories, setCatalogBusinessSubcategories] = useState([]);
@@ -714,6 +730,9 @@ export function App() {
     const params = new URLSearchParams({ limit: "50", offset: String(catalogOffset) });
     if (catalogQuery) params.set("q", catalogQuery);
     params.set("category", catalogCategoryKeys.has(catalogCategory) ? catalogCategory : firstCatalogCategory);
+    params.set("supportYear", catalogSupportYear);
+    params.set("startMonth", catalogStartMonth);
+    params.set("endMonth", catalogEndMonth);
     catalogIndustries.forEach((value) => params.append("industry", value));
     catalogRegions.forEach((value) => params.append("region", value));
     if (catalogCategory === "business") {
@@ -731,7 +750,7 @@ export function App() {
       });
 
     return () => controller.abort();
-  }, [screen, mode, catalogQuery, catalogCategory, catalogIndustries, catalogRegions, catalogBusinessSubcategories, catalogOffset, catalogRefresh, catalogCategoryKeys, firstCatalogCategory]);
+  }, [screen, mode, catalogQuery, catalogCategory, catalogSupportYear, catalogStartMonth, catalogEndMonth, catalogIndustries, catalogRegions, catalogBusinessSubcategories, catalogOffset, catalogRefresh, catalogCategoryKeys, firstCatalogCategory]);
 
   useEffect(() => {
     if (screen !== "editor" || mode !== "roadmap") return undefined;

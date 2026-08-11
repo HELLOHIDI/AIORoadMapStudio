@@ -17,7 +17,7 @@ const CATEGORIES = new Set(["consulting", "business", "voucher", "ip", "certific
 const CATALOG_CATEGORIES = new Set(["business", "voucher", "ip", "certification"]);
 const ROADMAP_TIERS = new Set(["premium", "standard"]);
 const STANDARD_ROADMAP_CATEGORIES = new Set(["consulting", "business", "voucher", "ip"]);
-const FIELDS = new Set(["category", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "industries", "regions", "mainPackage"]);
+const FIELDS = new Set(["category", "title", "link", "amountKrw", "supportYear", "startMonth", "endMonth", "target", "details", "industries", "regions", "mainPackage"]);
 const ROADMAP_FIELDS = new Set(["tier", "clientName", "programs"]);
 const ROADMAP_PROGRAM_FIELDS = new Set(["id", "category", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "sequence", "laneIndex"]);
 const INDUSTRIES = new Set(INDUSTRY_OPTIONS);
@@ -299,6 +299,7 @@ function validateCatalogProgramWithOptions(input, options) {
     title: cleanString(input.title),
     link: cleanString(input.link),
     amountKrw: input.amountKrw,
+    supportYear: input.supportYear,
     startMonth: input.startMonth,
     endMonth: input.endMonth,
     target: cleanString(input.target),
@@ -319,6 +320,9 @@ function validateCatalogProgramWithOptions(input, options) {
   }
   if (value.amountKrw !== null && (!Number.isSafeInteger(value.amountKrw) || value.amountKrw <= 0)) {
     fields.amountKrw = "지원금액은 비워 두거나 1원 이상의 정수로 입력해 주세요.";
+  }
+  if (!Number.isInteger(value.supportYear) || value.supportYear < 2000 || value.supportYear > 2100) {
+    fields.supportYear = "지원연도는 2000~2100 사이의 정수로 입력해 주세요.";
   }
   if (!Number.isInteger(value.startMonth) || !Number.isInteger(value.endMonth)
     || value.startMonth < 1 || value.endMonth > 12 || value.startMonth > value.endMonth) {
@@ -443,6 +447,7 @@ function rowToProgram(row) {
     title: row.title,
     link: row.link,
     amountKrw: row.amountKrw,
+    supportYear: row.supportYear ?? null,
     startMonth: row.startMonth,
     endMonth: row.endMonth,
     target: row.target,
@@ -459,6 +464,7 @@ function rowToProgram(row) {
 const SELECT_FIELDS = `
   id, category, title, link,
   amount_krw AS amountKrw,
+  support_year AS supportYear,
   start_month AS startMonth,
   end_month AS endMonth,
   target, details,
@@ -473,6 +479,9 @@ async function listCatalog(request, db) {
   const url = new URL(request.url);
   const q = cleanString(url.searchParams.get("q")).slice(0, 100);
   const category = cleanString(url.searchParams.get("category"));
+  const supportYearText = cleanString(url.searchParams.get("supportYear"));
+  const startMonthText = cleanString(url.searchParams.get("startMonth"));
+  const endMonthText = cleanString(url.searchParams.get("endMonth"));
   const industries = [...new Set(url.searchParams.getAll("industry").map(cleanString).filter(Boolean))];
   const regions = [...new Set(url.searchParams.getAll("region").map(cleanString).filter(Boolean))];
   const businessSubcategories = [...new Set(url.searchParams.getAll("businessSubcategory").map(cleanString).filter(Boolean))];
@@ -488,8 +497,17 @@ async function listCatalog(request, db) {
   const offset = Number.isInteger(requestedOffset) ? Math.min(Math.max(requestedOffset, 0), 100_000) : 0;
   const filters = [];
   const searchParams = [];
+  const supportYear = supportYearText ? Number.parseInt(supportYearText, 10) : null;
+  const startMonth = startMonthText ? Number.parseInt(startMonthText, 10) : null;
+  const endMonth = endMonthText ? Number.parseInt(endMonthText, 10) : null;
   if (category && !CATALOG_CATEGORIES.has(category)) {
     return apiError(400, "사업 카탈로그에서 지원하지 않는 구분입니다.");
+  }
+  if ((supportYearText && (!Number.isInteger(supportYear) || String(supportYear) !== supportYearText || supportYear < 2000 || supportYear > 2100))
+    || (startMonthText && (!Number.isInteger(startMonth) || String(startMonth) !== startMonthText || startMonth < 1 || startMonth > 12))
+    || (endMonthText && (!Number.isInteger(endMonth) || String(endMonth) !== endMonthText || endMonth < 1 || endMonth > 12))
+    || (startMonth !== null && endMonth !== null && startMonth > endMonth)) {
+    return apiError(400, "카탈로그 필터를 확인해 주세요.");
   }
   if (q) {
     filters.push("(title LIKE ? OR target LIKE ? OR details LIKE ?)");
@@ -498,6 +516,14 @@ async function listCatalog(request, db) {
   if (CATALOG_CATEGORIES.has(category)) {
     filters.push("category = ?");
     searchParams.push(category);
+  }
+  if (supportYear !== null) {
+    filters.push("support_year = ?");
+    searchParams.push(supportYear);
+  }
+  if (startMonth !== null || endMonth !== null) {
+    filters.push("start_month <= ? AND end_month >= ?");
+    searchParams.push(endMonth ?? 12, startMonth ?? 1);
   }
   if (businessSubcategories.length && category !== "business") {
     return apiError(400, "사업화 세부 분류는 사업화 구분에서만 사용할 수 있습니다.");
@@ -525,7 +551,7 @@ async function listCatalog(request, db) {
   const searchSql = filters.length ? ` WHERE ${filters.join(" AND ")}` : "";
 
   const [page, count] = await Promise.all([
-    db.prepare(`SELECT ${SELECT_FIELDS} FROM catalog_programs${searchSql} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`)
+    db.prepare(`SELECT ${SELECT_FIELDS} FROM catalog_programs${searchSql} ORDER BY support_year DESC, updated_at DESC, id DESC LIMIT ? OFFSET ?`)
       .bind(...searchParams, limit, offset)
       .all(),
     db.prepare(`SELECT COUNT(*) AS total FROM catalog_programs${searchSql}`)
@@ -564,10 +590,10 @@ async function createCatalog(request, db) {
   await db.prepare(`
     INSERT INTO catalog_programs
       (id, category, title, link, amount_krw, start_month, end_month, target, details,
-       industries_json, regions_json, main_package, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       industries_json, regions_json, main_package, support_year, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(id, item.category, item.title, item.link, item.amountKrw, item.startMonth, item.endMonth,
-    item.target, item.details, JSON.stringify(item.industries), JSON.stringify(item.regions), item.mainPackage ? 1 : 0, timestamp, timestamp).run();
+    item.target, item.details, JSON.stringify(item.industries), JSON.stringify(item.regions), item.mainPackage ? 1 : 0, item.supportYear, timestamp, timestamp).run();
   return json({ item }, 201);
 }
 
@@ -582,10 +608,10 @@ async function updateCatalog(request, db, id) {
   const result = await db.prepare(`
     UPDATE catalog_programs
     SET category = ?, title = ?, link = ?, amount_krw = ?, start_month = ?, end_month = ?,
-        target = ?, details = ?, industries_json = ?, regions_json = ?, main_package = ?, updated_at = ?
+        target = ?, details = ?, industries_json = ?, regions_json = ?, main_package = ?, support_year = ?, updated_at = ?
     WHERE id = ?
   `).bind(item.category, item.title, item.link, item.amountKrw, item.startMonth, item.endMonth,
-    item.target, item.details, JSON.stringify(item.industries), JSON.stringify(item.regions), item.mainPackage ? 1 : 0, timestamp, id).run();
+    item.target, item.details, JSON.stringify(item.industries), JSON.stringify(item.regions), item.mainPackage ? 1 : 0, item.supportYear, timestamp, id).run();
   if (!result.meta?.changes) return apiError(404, "등록된 사업을 찾을 수 없습니다.");
   return json({ item });
 }

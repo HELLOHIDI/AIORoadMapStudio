@@ -8,6 +8,7 @@ export const EMPTY_CATALOG_PROGRAM = Object.freeze({
   category: "business",
   title: "",
   link: "",
+  supportYear: new Date().getFullYear(),
   amountKrw: "",
   startMonth: 1,
   endMonth: 1,
@@ -86,13 +87,22 @@ export function parseCatalogText(text) {
   if (sections.지원내용) values.details = sections.지원내용;
   else warnings.push("지원내용을 입력해 주세요.");
 
-  if (!sections.지원기간) warnings.push("지원기간을 n~n월 형식으로 입력해 주세요.");
+  if (!sections.지원기간) warnings.push("지원기간을 YYYY.MM~YYYY.MM 형식으로 입력해 주세요.");
   else {
-    const period = sections.지원기간.match(/(\d{1,2})\s*~\s*(\d{1,2})\s*월/);
-    if (period && Number(period[1]) >= 1 && Number(period[2]) <= 12 && Number(period[1]) <= Number(period[2])) {
-      [values.startMonth, values.endMonth] = [Number(period[1]), Number(period[2])];
+    const period = sections.지원기간.match(/^\s*(\d{4})\.(\d{1,2})\s*~\s*(\d{4})\.(\d{1,2})\s*월?\s*$/);
+    if (
+      period
+      && period[1] === period[3]
+      && Number(period[2]) >= 1
+      && Number(period[2]) <= 12
+      && Number(period[4]) >= 1
+      && Number(period[4]) <= 12
+      && Number(period[2]) <= Number(period[4])
+    ) {
+      values.supportYear = Number(period[1]);
+      [values.startMonth, values.endMonth] = [Number(period[2]), Number(period[4])];
     }
-    else warnings.push("지원기간을 n~n월 형식으로 확인해 주세요.");
+    else warnings.push("지원기간을 같은 연도의 YYYY.MM~YYYY.MM 형식으로 확인해 주세요.");
   }
 
   if (!sections.지원금액) warnings.push("지원금액을 n만원, n백만원 또는 n억원 형식으로 입력해 주세요.");
@@ -110,6 +120,7 @@ export function catalogPayload(values) {
     category: values.category,
     title: values.title.trim(),
     link: values.link.trim(),
+    supportYear: Number(values.supportYear),
     amountKrw: values.amountKrw === "" ? null : Number(values.amountKrw),
     startMonth: Number(values.startMonth),
     endMonth: Number(values.endMonth),
