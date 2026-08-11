@@ -38,7 +38,7 @@ copyFileSync(
 );
 rmSync(path.join(dist, "catalog-options.js"), { force: true });
 rmSync(path.join(dist, "server", "catalog-options.js"), { force: true });
-const workerTemplate = readFileSync(worker, "utf8");
+const workerTemplate = readFileSync(worker, "utf8").replaceAll("\r\n", "\n");
 if (!workerTemplate.includes(catalogImport)) throw new Error("Missing catalog options import in Worker source");
 const catalogOptionsSource = readFileSync(catalogOptions, "utf8").replaceAll("export const ", "const ");
 const workerSource = workerTemplate
