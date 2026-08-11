@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";
+import { BUSINESS_SUBCATEGORY_OPTIONS, INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";
 import { groupAdministrativeRegionOptions } from "../catalog-tag-policy.js";
 import { formatAmount } from "./amount.js";
 import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, EMPTY_CATALOG_PROGRAM, formatCatalogBulletText, parseCatalogText } from "./catalog.js";
@@ -481,6 +481,14 @@ function CatalogForm({ categories, form, state, options, onChange, onCancel, onC
         </section>
       ) : null}
 
+      {values.category === "business" ? (
+        <label className="catalog-main-package-toggle">
+          <input type="checkbox" checked={values.mainPackage === true} onChange={(event) => change("mainPackage", event.target.checked)} />
+          <span><strong>메인패키지</strong> 직접 지정하는 사업화 태그입니다. 나머지 세부 태그는 사업명과 지원내용에서 자동 분류됩니다.</span>
+        </label>
+      ) : null}
+      <FieldError errors={state.fields} name="mainPackage" />
+
       <div className="catalog-tag-pickers">
         <TagPicker
           label="업종"
@@ -503,7 +511,11 @@ function CatalogForm({ categories, form, state, options, onChange, onCancel, onC
       {form.mode === "edit" ? <div className="catalog-form__grid">
         <label>
           <span>구분</span>
-          <select value={values.category} onChange={(event) => change("category", event.target.value)} aria-invalid={invalid("category")}>
+          <select value={values.category} onChange={(event) => {
+            const category = event.target.value;
+            onDirty();
+            onChange({ ...values, category, mainPackage: category === "business" && values.mainPackage === true });
+          }} aria-invalid={invalid("category")}>
             {categories.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
           </select>
           <FieldError errors={state.fields} name="category" />
@@ -574,6 +586,7 @@ export function App() {
   const [catalogCategory, setCatalogCategory] = useState(CATALOG_CATEGORIES[0].key);
   const [catalogIndustries, setCatalogIndustries] = useState([]);
   const [catalogRegions, setCatalogRegions] = useState([]);
+  const [catalogBusinessSubcategories, setCatalogBusinessSubcategories] = useState([]);
   const [catalogOptions, setCatalogOptions] = useState({
     industries: [...INDUSTRY_OPTIONS],
     regions: [...REGION_OPTIONS],
@@ -697,6 +710,9 @@ export function App() {
     params.set("category", catalogCategoryKeys.has(catalogCategory) ? catalogCategory : firstCatalogCategory);
     catalogIndustries.forEach((value) => params.append("industry", value));
     catalogRegions.forEach((value) => params.append("region", value));
+    if (catalogCategory === "business") {
+      catalogBusinessSubcategories.forEach((value) => params.append("businessSubcategory", value));
+    }
     fetch(`/api/catalog-programs?${params}`, { signal: controller.signal, headers: { accept: "application/json" } })
       .then(async (response) => {
         const data = await readApiJson(response);
@@ -709,7 +725,7 @@ export function App() {
       });
 
     return () => controller.abort();
-  }, [screen, mode, catalogQuery, catalogCategory, catalogIndustries, catalogRegions, catalogOffset, catalogRefresh, catalogCategoryKeys, firstCatalogCategory]);
+  }, [screen, mode, catalogQuery, catalogCategory, catalogIndustries, catalogRegions, catalogBusinessSubcategories, catalogOffset, catalogRefresh, catalogCategoryKeys, firstCatalogCategory]);
 
   useEffect(() => {
     if (screen !== "editor" || mode !== "roadmap") return undefined;
@@ -1282,7 +1298,7 @@ export function App() {
   )));
   const canGoBack = catalogOffset > 0;
   const canGoForward = catalogOffset + catalog.items.length < catalog.total;
-  const hasCatalogFilters = Boolean(catalogQuery || catalogIndustries.length || catalogRegions.length);
+  const hasCatalogFilters = Boolean(catalogQuery || catalogIndustries.length || catalogRegions.length || catalogBusinessSubcategories.length);
   const activePrograms = document.programs.filter((program) => program.category === activeCategory && allowedCategoryKeys.has(program.category));
   const draggingProgram = document.programs.find((program) => program.id === draggingProgramId);
 
@@ -1516,12 +1532,19 @@ export function App() {
                 {catalogCategories.map(({ key, label }) => (
                   <button type="button" key={key} aria-pressed={catalogCategory === key} onClick={() => {
                     setCatalogCategory(key);
+                    if (key !== "business") setCatalogBusinessSubcategories([]);
                     setCatalogOffset(0);
                   }}>{label}</button>
                 ))}
               </nav>
 
-              <section className="catalog-filters" aria-label="업종 및 지역 필터">
+              <section className="catalog-filters" aria-label="세부 분류, 업종 및 지역 필터">
+                {catalogCategory === "business" ? (
+                  <TagPicker collapsible label="사업화 세부 분류" options={BUSINESS_SUBCATEGORY_OPTIONS} value={catalogBusinessSubcategories} onChange={(next) => {
+                    setCatalogBusinessSubcategories(next);
+                    setCatalogOffset(0);
+                  }} />
+                ) : null}
                 <TagPicker collapsible label="업종 필터" options={catalogOptions.industries} value={catalogIndustries} onChange={(next) => {
                   setCatalogIndustries(next);
                   setCatalogOffset(0);
@@ -1531,14 +1554,15 @@ export function App() {
                   setCatalogOffset(0);
                 }} />
               </section>
-              {catalogIndustries.length || catalogRegions.length ? (
+              {catalogIndustries.length || catalogRegions.length || catalogBusinessSubcategories.length ? (
                 <div className="catalog-filter-actions">
-                  <span>선택한 업종 중 하나와 선택한 지역 중 하나를 모두 만족하는 사업을 찾습니다.</span>
+                  <span>각 필터 안에서는 하나 이상, 필터 간에는 모든 조건을 만족하는 사업을 찾습니다.</span>
                   <button type="button" className="button-tertiary" onClick={() => {
+                    setCatalogBusinessSubcategories([]);
                     setCatalogIndustries([]);
                     setCatalogRegions([]);
                     setCatalogOffset(0);
-                  }}>업종·지역 초기화</button>
+                  }}>필터 초기화</button>
                 </div>
               ) : null}
 
@@ -1563,7 +1587,7 @@ export function App() {
                 {catalog.status !== "loading" && !catalog.items.length && !catalog.error ? (
                   <div className="catalog-state">
                     <strong>{hasCatalogFilters ? "필터 결과가 없습니다." : "아직 등록된 사업이 없습니다."}</strong>
-                    <span>{hasCatalogFilters ? "검색어나 업종·지역 조건을 바꿔 주세요." : "새 사업 등록으로 첫 사업을 저장해 주세요."}</span>
+                    <span>{hasCatalogFilters ? "검색어나 세부 분류·업종·지역 조건을 바꿔 주세요." : "새 사업 등록으로 첫 사업을 저장해 주세요."}</span>
                   </div>
                 ) : null}
                 {catalog.items.map((program) => (
@@ -1576,6 +1600,7 @@ export function App() {
                       <dl className="catalog-row__meta">
                         <div><dt>지원금액</dt><dd>{program.amountKrw == null ? "금액 미정" : `최대 ${formatAmount(program.amountKrw)}`}</dd></div>
                         <div><dt>지원기간</dt><dd>{program.startMonth}~{program.endMonth}월</dd></div>
+                        {program.businessSubcategories?.length ? <div><dt>세부 분류</dt><dd>{program.businessSubcategories.map((tag) => <span key={tag}>{tag}</span>)}</dd></div> : null}
                         {program.industries?.length ? <div><dt>업종</dt><dd>{program.industries.map((tag) => <span key={tag}>{tag}</span>)}</dd></div> : null}
                         {program.regions?.length ? <div><dt>지역</dt><dd>{program.regions.map((tag) => <span key={tag}>{tag}</span>)}</dd></div> : null}
                       </dl>

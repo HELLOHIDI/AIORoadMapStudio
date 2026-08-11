@@ -10,7 +10,16 @@ const worker = path.join(root, "worker", "index.js");
 const hosting = path.join(root, ".openai", "hosting.json");
 const migrations = path.join(root, "drizzle");
 const catalogOptions = path.join(root, "catalog-options.js");
-const catalogImport = 'import { INDUSTRY_OPTIONS, LEGACY_INVALID_REGION_OPTIONS, NON_INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";';
+const catalogImport = `import {
+  BUSINESS_COMPETITION_TERMS,
+  BUSINESS_SUBCATEGORY_OPTIONS,
+  FOREIGN_COUNTRY_NAMES,
+  INDUSTRY_OPTIONS,
+  LEGACY_INVALID_REGION_OPTIONS,
+  NON_INDUSTRY_OPTIONS,
+  REGION_OPTIONS,
+  inferBusinessSubcategories,
+} from "../catalog-options.js";`;
 
 for (const file of [index, worker, hosting, migrations, catalogOptions]) {
   if (!existsSync(file)) throw new Error("Missing Sites build input: " + file);
@@ -34,6 +43,7 @@ if (!workerTemplate.includes(catalogImport)) throw new Error("Missing catalog op
 const catalogOptionsSource = readFileSync(catalogOptions, "utf8").replaceAll("export const ", "const ");
 const workerSource = workerTemplate
   .replace(catalogImport, catalogOptionsSource)
+  .replace("export function inferBusinessSubcategories", "function inferBusinessSubcategories")
   .replace("export function validateCatalogProgram", "function validateCatalogProgram")
   .replace("export function validateRoadmapDocumentForStorage", "function validateRoadmapDocumentForStorage");
 writeFileSync(path.join(dist, "server", "index.js"), workerSource);

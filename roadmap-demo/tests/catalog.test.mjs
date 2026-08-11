@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { INDUSTRY_OPTIONS, NON_INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";
+import {
+  BUSINESS_SUBCATEGORY_OPTIONS,
+  INDUSTRY_OPTIONS,
+  NON_INDUSTRY_OPTIONS,
+  REGION_OPTIONS,
+  inferBusinessSubcategories,
+} from "../catalog-options.js";
 import { ADMINISTRATIVE_REGION_GROUPS, groupAdministrativeRegionOptions, inferIndustries, inferRegions } from "../catalog-tag-policy.js";
 import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, formatCatalogBulletText, parseCatalogText } from "../src/catalog.js";
 
@@ -51,7 +57,32 @@ test("normalizes a catalog form into the API payload", () => {
     details: "실증 지원",
     industries: ["해양", "해양수산"],
     regions: ["서울", "부산"],
+    mainPackage: false,
   });
+});
+
+test("classifies business subcategories independently in display order", () => {
+  assert.deepEqual(inferBusinessSubcategories({
+    category: "business",
+    title: "미국 진출 데모데이 마케팅 사업",
+    details: "수출 컨설팅을 함께 지원",
+    mainPackage: true,
+  }), BUSINESS_SUBCATEGORY_OPTIONS);
+  assert.deepEqual(
+    inferBusinessSubcategories({ category: "business", title: "대한민국 창업 지원", details: "국내 판로 지원" }),
+    [],
+  );
+  assert.deepEqual(
+    inferBusinessSubcategories({ category: "voucher", title: "일본 수출 공모전", details: "마케팅 컨설팅" }),
+    [],
+  );
+  for (const title of ["창업 경진대회", "창업 공모전", "창업 콘테스트", "창업 데모데이", "창업 피칭대회"]) {
+    assert.deepEqual(inferBusinessSubcategories({ category: "business", title, details: "" }), ["경진대회"]);
+  }
+  assert.deepEqual(
+    inferBusinessSubcategories({ category: "business", title: "일반 사업", details: "데모데이 참가 지원" }),
+    [],
+  );
 });
 
 test("parses the agreed support-program text format without saving it", () => {

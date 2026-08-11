@@ -265,7 +265,7 @@ button {
 
 .catalog-filters {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   align-items: start;
   gap: 14px;
   margin-top: 14px;
@@ -872,6 +872,27 @@ button {
   grid-template-columns: 1fr 1fr;
   gap: 14px;
   margin-top: 14px;
+}
+
+.catalog-main-package-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #dfe3ea;
+  border-radius: 8px;
+  color: #606775;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.catalog-main-package-toggle input {
+  margin-top: 3px;
+}
+
+.catalog-main-package-toggle strong {
+  color: #363b46;
 }
 
 .tag-picker {

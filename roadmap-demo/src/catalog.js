@@ -15,6 +15,7 @@ export const EMPTY_CATALOG_PROGRAM = Object.freeze({
   details: "",
   industries: [],
   regions: [],
+  mainPackage: false,
 });
 
 const categoryByLabel = new Map(CATALOG_CATEGORIES.map(({ key, label }) => [label, key]));
@@ -116,6 +117,7 @@ export function catalogPayload(values) {
     details: values.details.trim(),
     industries: uniqueStrings(values.industries),
     regions: uniqueStrings(values.regions),
+    mainPackage: values.category === "business" && values.mainPackage === true,
   };
 }
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
-import { INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";
+import { BUSINESS_SUBCATEGORY_OPTIONS, INDUSTRY_OPTIONS, REGION_OPTIONS, inferBusinessSubcategories } from "../catalog-options.js";
 import worker from "../worker/index.js";
 
 test("serves existing static assets without a fallback", async () => {
@@ -71,9 +71,11 @@ test("does not turn missing API or write requests into the app shell", async () 
 function createDatabase() {
   const rows = [];
   const options = [];
+  const bindingCounts = [];
+  const statementByteLengths = [];
   const filterRows = (statement, params) => {
     let index = 0;
-    const hasSearch = statement.includes("title LIKE");
+    const hasSearch = statement.includes("(title LIKE ? OR target LIKE ? OR details LIKE ?)");
     const query = hasSearch ? String(params[index++]).slice(1, -1).toLowerCase() : "";
     if (hasSearch) index += 2;
     const hasCategory = statement.includes("category = ?");
@@ -85,21 +87,28 @@ function createDatabase() {
     const hasRegions = statement.includes("json_each(regions_json)");
     const regionCount = hasRegions ? (statement.match(/json_each\(regions_json\)[^)]+\)/)?.[0].match(/\?/g) ?? []).length : 0;
     const regions = params.slice(index, index + regionCount);
+    const businessSubcategories = BUSINESS_SUBCATEGORY_OPTIONS.filter((tag) => statement.includes(`business-subcategory:${tag}`));
 
     return rows
       .filter((row) => !query || [row.title, row.target, row.details]
         .some((value) => value.toLowerCase().includes(query)))
       .filter((row) => !category || row.category === category)
       .filter((row) => !industries.length || JSON.parse(row.industriesJson).some((value) => industries.includes(value)))
-      .filter((row) => !regions.length || JSON.parse(row.regionsJson).some((value) => regions.includes(value)));
+      .filter((row) => !regions.length || JSON.parse(row.regionsJson).some((value) => regions.includes(value)))
+      .filter((row) => !businessSubcategories.length || inferBusinessSubcategories({ ...row, mainPackage: row.mainPackage === 1 })
+        .some((tag) => businessSubcategories.includes(tag)));
   };
   return {
     rows,
     options,
+    bindingCounts,
+    statementByteLengths,
     prepare(sql) {
+      statementByteLengths.push(new TextEncoder().encode(sql).length);
       const statement = sql.replace(/\s+/g, " ").trim();
       return {
         bind(...params) {
+          bindingCounts.push(params.length);
           return {
             async all() {
               if (statement.startsWith("SELECT kind, value FROM catalog_options")) {
@@ -125,15 +134,15 @@ function createDatabase() {
                 return { meta: { changes: 1 } };
               }
               if (statement.startsWith("INSERT")) {
-                const [id, category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, createdAt, updatedAt] = params;
-                rows.push({ id, category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, createdAt, updatedAt });
+                const [id, category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, createdAt, updatedAt] = params;
+                rows.push({ id, category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, createdAt, updatedAt });
                 return { meta: { changes: 1 } };
               }
               if (statement.startsWith("UPDATE")) {
-                const [category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, updatedAt, id] = params;
+                const [category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, updatedAt, id] = params;
                 const row = rows.find((item) => item.id === id);
                 if (!row) return { meta: { changes: 0 } };
-                Object.assign(row, { category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, updatedAt });
+                Object.assign(row, { category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, updatedAt });
                 return { meta: { changes: 1 } };
               }
               if (statement.startsWith("DELETE")) {
@@ -216,6 +225,7 @@ const catalogInput = {
   details: "테스트 베드와 후속 투자 검토",
   industries: ["해양", "해양수산"],
   regions: ["서울", "부산"],
+  mainPackage: false,
 };
 
 test("validates and persists catalog CRUD through D1", async () => {
@@ -259,6 +269,7 @@ test("validates and persists catalog CRUD through D1", async () => {
   assert.equal(created.item.title, catalogInput.title);
   assert.deepEqual(created.item.industries, catalogInput.industries);
   assert.deepEqual(created.item.regions, catalogInput.regions);
+  assert.deepEqual(created.item.businessSubcategories, []);
   assert.equal(DB.rows.length, 1);
 
   const unknownTag = await request("/api/catalog-programs", {
@@ -291,6 +302,42 @@ test("validates and persists catalog CRUD through D1", async () => {
   const deletedResponse = await request(`/api/catalog-programs/${created.item.id}`, { method: "DELETE" });
   assert.equal(deletedResponse.status, 200);
   assert.equal(DB.rows.length, 0);
+});
+
+test("recomputes automatic business tags while preserving manual main package", async () => {
+  const DB = createDatabase();
+  const request = (path, options) => worker.fetch(new Request(`https://example.test${path}`, options), { DB });
+  const createdResponse = await request("/api/catalog-programs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      ...catalogInput,
+      title: "일본 데모데이 마케팅 사업",
+      details: "수출 컨설팅 지원",
+      mainPackage: true,
+    }),
+  });
+  const created = await createdResponse.json();
+  assert.equal(createdResponse.status, 201);
+  assert.deepEqual(created.item.businessSubcategories, BUSINESS_SUBCATEGORY_OPTIONS);
+  assert.equal(DB.rows[0].mainPackage, 1);
+
+  const updatedResponse = await request(`/api/catalog-programs/${created.item.id}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...catalogInput, title: "일반 사업화", details: "시제품 제작 지원", mainPackage: true }),
+  });
+  const updated = await updatedResponse.json();
+  assert.equal(updatedResponse.status, 200);
+  assert.deepEqual(updated.item.businessSubcategories, ["메인패키지"]);
+
+  const invalidMain = await request(`/api/catalog-programs/${created.item.id}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...catalogInput, category: "voucher", mainPackage: true }),
+  });
+  assert.equal(invalidMain.status, 400);
+  assert.equal(DB.rows[0].mainPackage, 1);
 });
 
 test("persists catalog options independently and accepts them in catalog writes", async () => {
@@ -427,6 +474,45 @@ test("filters catalog tags with OR within dimensions and AND before pagination",
 
   const tooManyFilters = await request(`/api/catalog-programs?${Array.from({ length: 21 }, (_, index) => `industry=i${index}`).join("&")}`);
   assert.equal(tooManyFilters.status, 400);
+});
+
+test("derives and filters multiple business subcategories before pagination", async () => {
+  const DB = createDatabase();
+  const row = (id, title, details, regions, mainPackage, updatedAt) => ({
+    id,
+    category: "business",
+    title,
+    link: "https://example.test",
+    amountKrw: 1_000_000,
+    startMonth: 1,
+    endMonth: 2,
+    target: `${title} 대상`,
+    details,
+    industriesJson: "[]",
+    regionsJson: JSON.stringify(regions),
+    mainPackage: mainPackage ? 1 : 0,
+    createdAt: updatedAt,
+    updatedAt,
+  });
+  DB.rows.push(
+    row("domestic", "대한민국 창업 지원", "국내 판로 지원", ["서울"], false, "2026-01-03T00:00:00.000Z"),
+    row("export", "일본 데모데이", "마케팅 및 컨설팅 지원", ["부산"], false, "2026-01-02T00:00:00.000Z"),
+    row("main", "일반 사업화", "시제품 지원", ["서울"], true, "2026-01-01T00:00:00.000Z"),
+  );
+  const request = (path) => worker.fetch(new Request(`https://example.test${path}`), { DB });
+
+  const tags = await (await request("/api/catalog-programs?category=business&businessSubcategory=메인패키지&businessSubcategory=수출&limit=1&offset=0")).json();
+  assert.equal(tags.total, 2);
+  assert.deepEqual(tags.items.map((item) => item.id), ["export"]);
+  assert.deepEqual(tags.items[0].businessSubcategories, ["경진대회", "수출", "마케팅", "컨설팅"]);
+  assert.ok(Math.max(...DB.bindingCounts) <= 100);
+  assert.ok(Math.max(...DB.statementByteLengths) <= 100_000);
+
+  const tagAndRegion = await (await request("/api/catalog-programs?category=business&businessSubcategory=수출&region=서울&limit=50&offset=0")).json();
+  assert.equal(tagAndRegion.total, 0);
+
+  assert.equal((await request("/api/catalog-programs?category=voucher&businessSubcategory=수출")).status, 400);
+  assert.equal((await request("/api/catalog-programs?category=business&businessSubcategory=기타")).status, 400);
 });
 
 test("persists public roadmap drafts without applying PDF validity rules", async () => {
@@ -627,12 +713,14 @@ test("emits the files required by Sites packaging", async () => {
   await access(new URL("../dist/.openai/drizzle/0000_catalog_programs.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0001_saved_roadmaps.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0002_catalog_options.sql", import.meta.url));
+  await access(new URL("../dist/.openai/drizzle/0006_catalog_business_subcategories.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/meta/_journal.json", import.meta.url));
   const migration = await readFile(new URL("../drizzle/0003_saved_roadmaps_tier.sql", import.meta.url), "utf8");
   assert.match(migration, /ADD COLUMN tier TEXT NOT NULL DEFAULT 'premium'/);
   assert.match(migration, /CHECK \(tier IN \('premium', 'standard'\)\)/);
   const journal = JSON.parse(await readFile(new URL("../drizzle/meta/_journal.json", import.meta.url), "utf8"));
   assert.equal(journal.entries.filter((entry) => entry.tag === "0003_saved_roadmaps_tier").length, 1);
+  assert.equal(journal.entries.filter((entry) => entry.tag === "0006_catalog_business_subcategories").length, 1);
   const server = await readFile(new URL("../dist/server/index.js", import.meta.url), "utf8");
   assert.deepEqual(server.match(/^export /gm), ["export "]);
 });

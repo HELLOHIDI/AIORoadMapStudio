@@ -36,6 +36,20 @@
       "when": 1786345200000,
       "tag": "0004_roadmap_feedback",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1786422600000,
+      "tag": "0005_catalog_amount_positive",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1786426200000,
+      "tag": "0006_catalog_business_subcategories",
+      "breakpoints": true
     }
   ]
 }

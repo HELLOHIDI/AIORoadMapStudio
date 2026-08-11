@@ -3,9 +3,9 @@
 ## Source of truth
 
 - Status: Active
-- Last refreshed: 2026-08-10
+- Last refreshed: 2026-08-11
 - Primary product surfaces: shared saved-roadmap library, desktop roadmap authoring, shared support-program catalog, A4 landscape roadmap preview, PDF print output, and native editable PPTX export
-- Evidence reviewed: `AGENTS.md`, `src/App.jsx`, `src/styles.css`, `src/roadmap-policy.js`, `src/pdf-preflight.js`, `public/assets/anp-consulting-logo.png`, the running 1440x1024 authoring screen, `.omx/specs/deep-interview-business-registration.md`, `.omx/specs/deep-interview-roadmap-saving.md`, `.omx/specs/deep-interview-roadmap-bar-feedback.md`, the user-approved inline-composer/right-inspector mock, `업종별_지역별_개별속성_중복제거.xlsx`
+- Evidence reviewed: `AGENTS.md`, `src/App.jsx`, `src/styles.css`, `src/roadmap-policy.js`, `src/pdf-preflight.js`, `public/assets/anp-consulting-logo.png`, the running 1440x1024 authoring screen, `.omx/specs/deep-interview-business-registration.md`, `.omx/specs/deep-interview-business-subcategories.md`, `.omx/specs/deep-interview-roadmap-saving.md`, `.omx/specs/deep-interview-roadmap-bar-feedback.md`, the user-approved inline-composer/right-inspector mock, `업종별_지역별_개별속성_중복제거.xlsx`
 - Governance: this file defines product and UI/UX policy. Generated mockups are exploratory until the user explicitly approves one; they do not override this file.
 
 ## Brand
@@ -96,11 +96,12 @@
 - New/changed components:
   - `SavedRoadmapLibrary` reusing the existing list, notice, and action styles.
   - `WorkspaceModeSwitch` for `로드맵 편집` / `사업 카탈로그`.
-  - `CatalogToolbar` with keyword, category, industry, and region filters plus the secondary `새 사업 등록` action.
+  - `CatalogToolbar` with keyword, category, business-only subcategory, industry, and region filters plus the secondary `새 사업 등록` action.
   - `CatalogList` and `CatalogRow` using lightweight row separation.
   - `CatalogForm` for explicit create/edit mode, not the catalog default.
   - New-business `CatalogForm` is text-first: one agreed-format textarea, inline source-text errors, then searchable multi-select industry and region tags. A missing industry or region can be added as an immediately persisted public option from its picker. It parses only on registration and never shows a parsed-result review or individual creation fields.
   - Existing-business editing retains the current individual editable fields and tag selectors.
+  - Business create/edit exposes only the manual `메인패키지` toggle. `경진대회`, `수출`, `마케팅`, and `컨설팅` remain derived, read-only tags shown on catalog rows.
   - Inline catalog status feedback with a route back to roadmap editing.
   - `RoadmapFeedbackComposer` anchored beside a selected bar only when that program has no feedback.
   - `RoadmapFeedbackInspector` for an existing thread, with program title, state, flat timeline, team-lead authentication when needed, and current-state actions.
@@ -167,7 +168,7 @@
 
 - Framework/styling system: React 19, Vite, and the existing plain CSS architecture.
 - Design-token constraints: reuse existing colors, fonts, spacing, radii, and print rules before adding values.
-- Performance constraints: long catalogs require bounded rendering/pagination or an equally simple server query; apply active keyword, category, industry, and region filters before pagination and do not load unbounded rich detail into every visible row.
+- Performance constraints: long catalogs require bounded rendering/pagination or an equally simple server query; apply active keyword, category, business subcategory, industry, and region filters before pagination and do not load unbounded rich detail into every visible row.
 - Compatibility constraints:
   - Preserve `.openai/hosting.json`, `worker/index.js`, `scripts/prepare-sites-build.mjs`, and `tests/sites-worker.test.mjs` contracts.
   - Use the existing Sites D1 capability through a logical `DB` binding for central structured persistence. Sites owns the deployed database resource and binding.
@@ -184,7 +185,7 @@
 
 - Storage: one D1 table for catalog masters. Do not add browser storage, an external data service, an ORM, or a generic repository layer.
 - API surface:
-  - `GET /api/catalog-programs?q=&category=&industry=&region=&limit=&offset=` returns a bounded filtered page and total count. Repeated industry values use OR, repeated region values use OR, and active dimensions combine with AND.
+  - `GET /api/catalog-programs?q=&category=&businessSubcategory=&industry=&region=&limit=&offset=` returns a bounded filtered page and total count. Repeated values use OR within each dimension, and active dimensions combine with AND. `businessSubcategory` is valid only with `category=business`.
   - `POST /api/catalog-programs` creates a master.
   - `PUT /api/catalog-programs/:id` replaces the editable master fields.
   - `DELETE /api/catalog-programs/:id` deletes only the master.
@@ -193,6 +194,7 @@
 - Pagination: default 50 records, maximum 100, newest updates first, with simple previous/next controls. This is sufficient for the expected MVP catalog size; replace offset pagination only if measured scale makes it necessary.
 - Validation boundary: accept only the agreed fields; require a known roadmap category, non-empty title/target/details, an `http` or `https` link, a null amount or safe integer KRW amount of at least 1,000,000, and inclusive months from 1 through 12 with start not after end. Industry and region are optional arrays containing only shared workbook-derived or dynamically created values; both allow multiple selections. Trim new values, bound their length, and prevent exact duplicates at the API/database boundary.
 - Tag storage/filtering: store industry and region selections as JSON arrays on each catalog master. Filter the complete catalog server-side before pagination, using OR within each tag dimension and AND across active dimensions. Keep the workbook-derived arrays as the initial shared choices and persist only newly added values in D1.
+- Business subcategory policy: display `메인패키지`, `경진대회`, `수출`, `마케팅`, `컨설팅` in that order and allow multiple tags. Persist only the manual `메인패키지` flag; derive the other tags from the current title/details so legacy rows receive the same result without a destructive backfill. Match `마케팅` and `컨설팅` as exact substrings in title/details, match `경진대회`/`공모전`/`콘테스트`/`데모데이`/`피칭대회` in title only, and match `수출` or a fixed foreign-country dictionary in title/details. `한국` and `대한민국` alone never imply `수출`.
 - Identity: generate a new catalog ID on create and a different new roadmap-program ID on copy. Never store a live master reference in the roadmap copy.
 - Concurrency: use normal request-level last-write-wins semantics for this unauthenticated MVP. Return explicit not-found, validation, and server errors; do not add conflict-resolution UI.
 - Initialization: keep the schema and one idempotent KIMST/SCCEI seed migration in the repository. Do not create production resources or credentials from application code.

@@ -1,4 +1,13 @@
-import { INDUSTRY_OPTIONS, LEGACY_INVALID_REGION_OPTIONS, NON_INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";
+import {
+  BUSINESS_COMPETITION_TERMS,
+  BUSINESS_SUBCATEGORY_OPTIONS,
+  FOREIGN_COUNTRY_NAMES,
+  INDUSTRY_OPTIONS,
+  LEGACY_INVALID_REGION_OPTIONS,
+  NON_INDUSTRY_OPTIONS,
+  REGION_OPTIONS,
+  inferBusinessSubcategories,
+} from "../catalog-options.js";
 
 const CATALOG_PATH = "/api/catalog-programs";
 const CATALOG_OPTIONS_PATH = "/api/catalog-options";
@@ -8,12 +17,13 @@ const CATEGORIES = new Set(["consulting", "business", "voucher", "ip", "certific
 const CATALOG_CATEGORIES = new Set(["business", "voucher", "ip", "certification"]);
 const ROADMAP_TIERS = new Set(["premium", "standard"]);
 const STANDARD_ROADMAP_CATEGORIES = new Set(["consulting", "business", "voucher", "ip"]);
-const FIELDS = new Set(["category", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "industries", "regions"]);
+const FIELDS = new Set(["category", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "industries", "regions", "mainPackage"]);
 const ROADMAP_FIELDS = new Set(["tier", "clientName", "programs"]);
 const ROADMAP_PROGRAM_FIELDS = new Set(["id", "category", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "sequence", "laneIndex"]);
 const INDUSTRIES = new Set(INDUSTRY_OPTIONS);
 const NON_INDUSTRIES = new Set(NON_INDUSTRY_OPTIONS);
 const REGIONS = new Set(REGION_OPTIONS);
+const BUSINESS_SUBCATEGORIES = new Set(BUSINESS_SUBCATEGORY_OPTIONS);
 const INVALID_REGIONS = new Set(LEGACY_INVALID_REGION_OPTIONS);
 const OPTION_KINDS = new Set(["industry", "region"]);
 const MAX_BODY_BYTES = 500_000;
@@ -295,6 +305,7 @@ function validateCatalogProgramWithOptions(input, options) {
     details: cleanString(input.details),
     industries: cleanTags(input.industries, options.industries, "industries", fields),
     regions: cleanTags(input.regions, options.regions, "regions", fields),
+    mainPackage: input.mainPackage ?? false,
   };
 
   if (!CATALOG_CATEGORIES.has(value.category)) fields.category = "사업 카탈로그에서 지원하지 않는 구분입니다.";
@@ -316,6 +327,10 @@ function validateCatalogProgramWithOptions(input, options) {
   }
   if (!value.target || value.target.length > 1000) fields.target = "지원대상은 1~1,000자로 입력해 주세요.";
   if (!value.details || value.details.length > 4000) fields.details = "지원내용은 1~4,000자로 입력해 주세요.";
+  if (typeof value.mainPackage !== "boolean") fields.mainPackage = "메인패키지 지정 여부를 확인해 주세요.";
+  if (value.category !== "business" && value.mainPackage) fields.mainPackage = "메인패키지는 사업화 사업에만 지정할 수 있습니다.";
+
+  value.businessSubcategories = inferBusinessSubcategories(value);
 
   return Object.keys(fields).length ? { error: "입력 내용을 확인해 주세요.", fields } : { value };
 }
@@ -424,7 +439,7 @@ export function validateRoadmapDocumentForStorage(input) {
 }
 
 function rowToProgram(row) {
-  return {
+  const program = {
     id: row.id,
     category: row.category,
     title: row.title,
@@ -436,9 +451,11 @@ function rowToProgram(row) {
     details: row.details,
     industries: JSON.parse(row.industriesJson),
     regions: JSON.parse(row.regionsJson),
+    mainPackage: row.mainPackage === 1 || row.mainPackage === true,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+  return { ...program, businessSubcategories: inferBusinessSubcategories(program) };
 }
 
 const SELECT_FIELDS = `
@@ -449,6 +466,7 @@ const SELECT_FIELDS = `
   target, details,
   industries_json AS industriesJson,
   regions_json AS regionsJson,
+  main_package AS mainPackage,
   created_at AS createdAt,
   updated_at AS updatedAt
 `;
@@ -459,8 +477,12 @@ async function listCatalog(request, db) {
   const category = cleanString(url.searchParams.get("category"));
   const industries = [...new Set(url.searchParams.getAll("industry").map(cleanString).filter(Boolean))];
   const regions = [...new Set(url.searchParams.getAll("region").map(cleanString).filter(Boolean))];
+  const businessSubcategories = [...new Set(url.searchParams.getAll("businessSubcategory").map(cleanString).filter(Boolean))];
   if (industries.length > 20 || regions.length > 20 || industries.some((item) => item.length > 100) || regions.some((item) => item.length > 100)) {
     return apiError(400, "카탈로그 필터를 확인해 주세요.");
+  }
+  if (businessSubcategories.some((tag) => !BUSINESS_SUBCATEGORIES.has(tag))) {
+    return apiError(400, "사업화 세부 분류를 확인해 주세요.");
   }
   const requestedLimit = Number.parseInt(url.searchParams.get("limit") ?? "50", 10);
   const requestedOffset = Number.parseInt(url.searchParams.get("offset") ?? "0", 10);
@@ -479,6 +501,9 @@ async function listCatalog(request, db) {
     filters.push("category = ?");
     searchParams.push(category);
   }
+  if (businessSubcategories.length && category !== "business") {
+    return apiError(400, "사업화 세부 분류는 사업화 구분에서만 사용할 수 있습니다.");
+  }
   if (industries.length) {
     filters.push(`EXISTS (SELECT 1 FROM json_each(industries_json) WHERE value IN (${industries.map(() => "?").join(", ")}))`);
     searchParams.push(...industries);
@@ -486,6 +511,18 @@ async function listCatalog(request, db) {
   if (regions.length) {
     filters.push(`EXISTS (SELECT 1 FROM json_each(regions_json) WHERE value IN (${regions.map(() => "?").join(", ")}))`);
     searchParams.push(...regions);
+  }
+  if (businessSubcategories.length) {
+    const predicates = businessSubcategories.map((tag) => {
+      if (tag === "메인패키지") return "main_package = 1 /* business-subcategory:메인패키지 */";
+      const terms = tag === "경진대회"
+        ? BUSINESS_COMPETITION_TERMS
+        : tag === "수출" ? ["수출", ...FOREIGN_COUNTRY_NAMES] : [tag];
+      const columns = tag === "경진대회" ? ["title"] : ["title", "details"];
+      searchParams.push(JSON.stringify(terms));
+      return `EXISTS (SELECT 1 FROM json_each(?) AS business_term WHERE ${columns.map((column) => `instr(${column}, business_term.value) > 0`).join(" OR ")}) /* business-subcategory:${tag} */`;
+    });
+    filters.push(`(${predicates.join(" OR ")})`);
   }
   const searchSql = filters.length ? ` WHERE ${filters.join(" AND ")}` : "";
 
@@ -529,10 +566,10 @@ async function createCatalog(request, db) {
   await db.prepare(`
     INSERT INTO catalog_programs
       (id, category, title, link, amount_krw, start_month, end_month, target, details,
-       industries_json, regions_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       industries_json, regions_json, main_package, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(id, item.category, item.title, item.link, item.amountKrw, item.startMonth, item.endMonth,
-    item.target, item.details, JSON.stringify(item.industries), JSON.stringify(item.regions), timestamp, timestamp).run();
+    item.target, item.details, JSON.stringify(item.industries), JSON.stringify(item.regions), item.mainPackage ? 1 : 0, timestamp, timestamp).run();
   return json({ item }, 201);
 }
 
@@ -547,10 +584,10 @@ async function updateCatalog(request, db, id) {
   const result = await db.prepare(`
     UPDATE catalog_programs
     SET category = ?, title = ?, link = ?, amount_krw = ?, start_month = ?, end_month = ?,
-        target = ?, details = ?, industries_json = ?, regions_json = ?, updated_at = ?
+        target = ?, details = ?, industries_json = ?, regions_json = ?, main_package = ?, updated_at = ?
     WHERE id = ?
   `).bind(item.category, item.title, item.link, item.amountKrw, item.startMonth, item.endMonth,
-    item.target, item.details, JSON.stringify(item.industries), JSON.stringify(item.regions), timestamp, id).run();
+    item.target, item.details, JSON.stringify(item.industries), JSON.stringify(item.regions), item.mainPackage ? 1 : 0, timestamp, id).run();
   if (!result.meta?.changes) return apiError(404, "등록된 사업을 찾을 수 없습니다.");
   return json({ item });
 }
