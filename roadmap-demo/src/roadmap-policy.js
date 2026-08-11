@@ -270,11 +270,34 @@ export function exchangeProgramWithLanePair({ programs, programId, targetLaneInd
   };
 }
 
+function exchangeLanePairWithProgram({ programs, programId, targetLaneIndex, tier }) {
+  const { section, current } = layoutForProgram({ programs, programId, tier });
+  if (!section || !current || targetLaneIndex === current.rowIndex) return { ok: false, programs, outcome: "rejected" };
+
+  const pair = section.lanes[current.rowIndex];
+  const target = section.lanes[targetLaneIndex];
+  if (pair.length !== 2 || target.length !== 1 || overlaps(pair[0], pair[1])) return { ok: false, programs, outcome: "rejected" };
+
+  return {
+    ok: true,
+    programs: programs.map((item) => {
+      if (pair.some((member) => member.id === item.id)) return { ...item, laneIndex: targetLaneIndex };
+      if (item.id === target[0].id) return { ...item, laneIndex: current.rowIndex };
+      return item;
+    }),
+    outcome: "swapped-pair",
+  };
+}
+
 export function moveProgramToTargetLane({ programs, programId, targetLaneIndex, tier = "premium" }) {
-  const { section } = layoutForProgram({ programs, programId, tier });
+  const { section, current } = layoutForProgram({ programs, programId, tier });
   const targetLane = section?.lanes[targetLaneIndex];
   if (targetLane?.length === 2) {
     const exchange = exchangeProgramWithLanePair({ programs, programId, targetLaneIndex, tier });
+    if (exchange.ok) return exchange;
+  }
+  if (targetLane?.length === 1 && section?.lanes[current?.rowIndex]?.length === 2) {
+    const exchange = exchangeLanePairWithProgram({ programs, programId, targetLaneIndex, tier });
     if (exchange.ok) return exchange;
   }
   return moveProgramToLane({ programs, programId, targetLaneIndex, tier });
