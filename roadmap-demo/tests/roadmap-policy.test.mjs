@@ -238,6 +238,23 @@ test("exchanges one program with two non-overlapping target-lane occupants", () 
   assert.deepEqual(result.programs.map(({ startMonth, endMonth }) => [startMonth, endMonth]), [[3, 4], [2, 2], [5, 5]]);
 });
 
+test("exchanges one program with a lane pair when its source lane remains collision-free", () => {
+  const programs = [
+    program("deeptech", 2, 3, { category: "business", laneIndex: 3 }),
+    program("source-rest", 5, 6, { category: "business", laneIndex: 3 }),
+    program("support-1", 1, 2, { category: "business", laneIndex: 2 }),
+    program("support-2", 3, 4, { category: "business", laneIndex: 2 }),
+  ];
+  const result = moveProgramToTargetLane({ programs, programId: "deeptech", targetLaneIndex: 2 });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.programs.find((item) => item.id === "deeptech").laneIndex, 2);
+  assert.equal(result.programs.find((item) => item.id === "support-1").laneIndex, 3);
+  assert.equal(result.programs.find((item) => item.id === "support-2").laneIndex, 3);
+  assert.equal(result.programs.find((item) => item.id === "source-rest").laneIndex, 3);
+  assert.deepEqual(result.programs.map(({ id, startMonth, endMonth }) => ({ id, startMonth, endMonth })), programs.map(({ id, startMonth, endMonth }) => ({ id, startMonth, endMonth })));
+});
+
 test("exchanges a dragged lane-pair member with the one target-lane program", () => {
   const programs = [
     program("left", 2, 2, { laneIndex: 0 }),

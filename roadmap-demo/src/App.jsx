@@ -38,7 +38,7 @@ function formatFeedbackTime(value) {
   return new Date(value).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-function formatCatalogPeriod(program, fallbackYear = currentSupportYear) {
+function formatCatalogPeriod(program, fallbackYear = "연도 미정") {
   const year = Number(program.supportYear) || fallbackYear;
   const start = String(program.startMonth).padStart(2, "0");
   const end = String(program.endMonth).padStart(2, "0");
@@ -625,6 +625,7 @@ export function App() {
   const [deletingId, setDeletingId] = useState(null);
   const [activeCategory, setActiveCategory] = useState(ROADMAP_CATEGORIES[0].key);
   const [draggingProgramId, setDraggingProgramId] = useState(null);
+  const dragProgramId = useRef(null);
   const dragStartClientX = useRef(null);
   const [layoutNotice, setLayoutNotice] = useState("");
   const [feedback, setFeedback] = useState({ status: "idle", items: [], error: "" });
@@ -1016,11 +1017,13 @@ export function App() {
   const startDrag = (event, programId) => {
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", programId);
+    dragProgramId.current = programId;
     setLayoutNotice("");
     setDraggingProgramId(programId);
   };
 
   const endDrag = () => {
+    dragProgramId.current = null;
     dragStartClientX.current = null;
     setDraggingProgramId(null);
   };
@@ -1359,6 +1362,9 @@ export function App() {
   const canGoBack = catalogOffset > 0;
   const canGoForward = catalogOffset + catalog.items.length < catalog.total;
   const catalogPeriodChanged = Boolean(catalogSupportYear) || catalogStartMonth !== "1" || catalogEndMonth !== "12";
+  const catalogPeriodLabel = catalogPeriodChanged
+    ? formatCatalogPeriod({ supportYear: catalogSupportYear, startMonth: catalogStartMonth, endMonth: catalogEndMonth }, catalogSupportYear ? undefined : "전체 연도")
+    : "전체 기간";
   const hasCatalogFilters = Boolean(catalogQuery || catalogPeriodChanged || catalogIndustries.length || catalogRegions.length || catalogBusinessSubcategories.length);
   const activePrograms = document.programs.filter((program) => program.category === activeCategory && allowedCategoryKeys.has(program.category));
   const draggingProgram = document.programs.find((program) => program.id === draggingProgramId);
@@ -1435,11 +1441,13 @@ export function App() {
                               ? (laneDropResult(draggingProgramId, laneIndex).ok ? "valid" : "invalid")
                               : undefined}
                             onDragOver={(event) => {
-                              if (draggingProgram?.category === section.key) event.preventDefault();
+                              const programId = event.dataTransfer.getData("text/plain") || dragProgramId.current;
+                              if (document.programs.find((item) => item.id === programId)?.category === section.key) event.preventDefault();
                             }}
                             onDrop={(event) => {
                               event.preventDefault();
-                              if (draggingProgram?.category === section.key) dropProgram(event, draggingProgramId, laneIndex);
+                              const programId = event.dataTransfer.getData("text/plain") || dragProgramId.current;
+                              if (document.programs.find((item) => item.id === programId)?.category === section.key) dropProgram(event, programId, laneIndex);
                               endDrag();
                             }}
                           >
@@ -1648,11 +1656,11 @@ export function App() {
               </section>
               {hasCatalogFilters ? (
                 <div className="catalog-filter-actions">
-                  <span>{formatCatalogPeriod({ supportYear: catalogSupportYear, startMonth: catalogStartMonth, endMonth: catalogEndMonth })} 포함 사업을 찾습니다.</span>
+                  <span>{catalogPeriodLabel} 포함 사업을 찾습니다.</span>
                   <button type="button" className="button-tertiary" onClick={() => {
                     setCatalogSearch("");
                     setCatalogQuery("");
-                    setCatalogSupportYear(String(currentSupportYear));
+                    setCatalogSupportYear("");
                     setCatalogStartMonth("1");
                     setCatalogEndMonth("12");
                     setCatalogBusinessSubcategories([]);
@@ -1663,7 +1671,7 @@ export function App() {
                 </div>
               ) : null}
               <p className="catalog-filter-status" role="status">
-                조회 기간 {formatCatalogPeriod({ supportYear: catalogSupportYear, startMonth: catalogStartMonth, endMonth: catalogEndMonth })}
+                조회 기간 {catalogPeriodLabel}
               </p>
 
               {catalogOptions.error ? <p className="catalog-notice catalog-notice--error" role="alert">{catalogOptions.error}</p> : null}
@@ -1699,7 +1707,7 @@ export function App() {
                       </div>
                       <dl className="catalog-row__meta">
                         <div><dt>지원금액</dt><dd>{program.amountKrw == null ? "금액 미정" : `최대 ${formatAmount(program.amountKrw)}`}</dd></div>
-                        <div><dt>지원기간</dt><dd>{formatCatalogPeriod(program, Number(catalogSupportYear) || currentSupportYear)}</dd></div>
+                        <div><dt>지원기간</dt><dd>{formatCatalogPeriod(program)}</dd></div>
                         {program.businessSubcategories?.length ? <div><dt>세부 분류</dt><dd>{program.businessSubcategories.map((tag) => <span key={tag}>{tag}</span>)}</dd></div> : null}
                         {program.industries?.length ? <div><dt>업종</dt><dd>{program.industries.map((tag) => <span key={tag}>{tag}</span>)}</dd></div> : null}
                         {program.regions?.length ? <div><dt>지역</dt><dd>{program.regions.map((tag) => <span key={tag}>{tag}</span>)}</dd></div> : null}

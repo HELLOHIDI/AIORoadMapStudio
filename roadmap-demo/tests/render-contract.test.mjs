@@ -145,8 +145,8 @@ test("keeps shared tag creation and catalog filters wired to the server", () => 
   assert.match(app, /<TagPicker collapsible label="사업화 세부 분류"/);
   assert.ok(app.includes('className="catalog-main-package-toggle"'));
   assert.ok(app.includes("program.businessSubcategories?.length"));
-  assert.ok(app.includes("formatCatalogPeriod(program, Number(catalogSupportYear) || currentSupportYear)"));
-  assert.ok(app.includes("setCatalogSupportYear(String(currentSupportYear))"));
+  assert.ok(app.includes("formatCatalogPeriod(program)"));
+  assert.ok(app.includes('setCatalogSupportYear("")'));
   assert.ok(app.includes('className="catalog-filter-status" role="status"'));
   assert.ok(app.includes('aria-label="대한민국 행정구역별 지역 필터"'));
   assert.ok(app.includes('<details className="tag-picker-disclosure">'));
@@ -203,8 +203,9 @@ test("keeps category tabs and direct roadmap moves outside print", () => {
   assert.ok(app.includes('category, title: ""'));
   assert.ok(app.includes('draggable'));
   assert.ok(app.includes('onDrop={(event) =>'));
+  assert.ok(app.includes('event.dataTransfer.getData("text/plain") || dragProgramId.current'));
   assert.ok(app.includes('const deltaMonths = monthWidth ? Math.round((event.clientX - startClientX) / monthWidth) : 0;'));
-  assert.ok(app.includes('dropProgram(event, draggingProgramId, laneIndex)'));
+  assert.ok(app.includes('dropProgram(event, programId, laneIndex)'));
   assert.ok(!app.includes('roadmap-event__handle'));
   assert.ok(app.includes('params.set("category", catalogCategoryKeys.has(catalogCategory) ? catalogCategory : firstCatalogCategory)'));
   assert.ok(app.includes('사업 상세보기'));
