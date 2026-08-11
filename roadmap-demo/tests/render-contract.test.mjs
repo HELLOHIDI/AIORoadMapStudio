@@ -147,9 +147,11 @@ test("keeps shared tag creation and catalog filters wired to the server", () => 
   assert.ok(app.includes("program.businessSubcategories?.length"));
   assert.ok(app.includes("formatCatalogPeriod(program, Number(catalogSupportYear) || currentSupportYear)"));
   assert.ok(app.includes("setCatalogSupportYear(String(currentSupportYear))"));
+  assert.ok(app.includes('className="catalog-filter-status" role="status"'));
   assert.ok(app.includes('aria-label="대한민국 행정구역별 지역 필터"'));
   assert.ok(app.includes('<details className="tag-picker-disclosure">'));
   assert.match(styles, /\.catalog-filters\s*\{/);
+  assert.match(styles, /\.catalog-filter-status\s*\{/);
   assert.match(styles, /\.tag-picker-disclosure\s*\{/);
   assert.match(styles, /\.tag-picker__create\s*\{/);
   assert.match(styles, /\.region-filter__groups\s*\{/);

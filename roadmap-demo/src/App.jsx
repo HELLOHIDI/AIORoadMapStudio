@@ -1640,6 +1640,9 @@ export function App() {
                   }}>검색·필터 초기화</button>
                 </div>
               ) : null}
+              <p className="catalog-filter-status" role="status">
+                조회 기간 {formatCatalogPeriod({ supportYear: catalogSupportYear, startMonth: catalogStartMonth, endMonth: catalogEndMonth })}
+              </p>
 
               {catalogOptions.error ? <p className="catalog-notice catalog-notice--error" role="alert">{catalogOptions.error}</p> : null}
 

@@ -562,6 +562,12 @@ button {
   max-width: 96px;
 }
 
+.catalog-filter-status {
+  margin: 10px 0 0;
+  color: #596171;
+  font-size: 13px;
+}
+
 .catalog-panel input,
 .catalog-panel select,
 .catalog-panel textarea {
