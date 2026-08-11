@@ -1,6 +1,6 @@
 {
   "private": true,
   "scripts": {
-    "build": "npm --prefix roadmap-demo ci && npm --prefix roadmap-demo run build"
+    "build": "npm --prefix roadmap-demo ci && npm --prefix roadmap-demo run build && node -e \"const fs=require('fs'); fs.rmSync('dist',{recursive:true,force:true}); fs.cpSync('roadmap-demo/dist','dist',{recursive:true})\""
   }
 }
