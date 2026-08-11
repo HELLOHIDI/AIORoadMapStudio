@@ -97,11 +97,12 @@ test("resolves authoring categories from the immutable roadmap tier", () => {
   assert.ok(app.includes("allowedCategoriesForTier(documentTier)"));
   assert.ok(app.includes("resolveRoadmapTier(document)"));
   assert.ok(app.includes("setActiveCategory(firstCategory)"));
-  assert.ok(app.includes("setCatalogCategory(firstCategory)"));
+  assert.ok(app.includes("setCatalogCategory(CATALOG_CATEGORIES[0].key)"));
   assert.ok(app.includes("const nextFirstCategory = allowedCategoriesForTier(resolveRoadmapTier(data.item.document))[0].key"));
   assert.ok(app.includes("allowedCategories.map(({ key, label })"));
+  assert.ok(app.includes("catalogCategories.map(({ key, label })"));
   assert.ok(app.includes("categories={allowedCategories}"));
-  assert.ok(app.includes("params.set(\"category\", allowedCategoryKeys.has(catalogCategory) ? catalogCategory : firstAllowedCategory)"));
+  assert.ok(app.includes("params.set(\"category\", catalogCategoryKeys.has(catalogCategory) ? catalogCategory : firstCatalogCategory)"));
   assert.ok(app.includes("if (!allowedCategoryKeys.has(program.category))"));
   assert.ok(app.includes("tier: documentTier"));
 });
@@ -137,11 +138,13 @@ test("keeps shared tag creation and catalog filters wired to the server", () => 
   assert.ok(app.includes('onCreate={form.mode === "create"'));
   assert.ok(app.includes('“${normalizedQuery}” 공용 선택지로 추가'));
   assert.match(app, /<TagPicker collapsible label="업종 필터"/);
-  assert.match(app, /<TagPicker collapsible label="지역 필터"/);
+  assert.match(app, /<RegionFilter options=\{catalogOptions\.regions\}/);
+  assert.ok(app.includes('aria-label="대한민국 행정구역별 지역 필터"'));
   assert.ok(app.includes('<details className="tag-picker-disclosure">'));
   assert.match(styles, /\.catalog-filters\s*\{/);
   assert.match(styles, /\.tag-picker-disclosure\s*\{/);
   assert.match(styles, /\.tag-picker__create\s*\{/);
+  assert.match(styles, /\.region-filter__groups\s*\{/);
 });
 
 test("renders the roadmap before its editing controls", () => {
@@ -191,10 +194,12 @@ test("keeps category tabs and direct roadmap moves outside print", () => {
   assert.ok(app.includes('draggable'));
   assert.ok(app.includes('onDrop={(event) =>'));
   assert.ok(!app.includes('roadmap-event__handle'));
-  assert.ok(app.includes('params.set("category", allowedCategoryKeys.has(catalogCategory) ? catalogCategory : firstAllowedCategory)'));
+  assert.ok(app.includes('params.set("category", catalogCategoryKeys.has(catalogCategory) ? catalogCategory : firstCatalogCategory)'));
   assert.ok(app.includes('사업 상세보기'));
   assert.ok(app.includes('지원대상:'));
   assert.ok(app.includes('지원 내용:'));
+  assert.ok(app.includes('formatCatalogBulletText(program.target)'));
+  assert.ok(app.includes('formatCatalogBulletText(program.details)'));
   assert.ok(app.includes('공고 링크:'));
   assert.match(styles, /\.category-tabs\s*\{/);
   assert.match(styles, /\.roadmap-lane\[data-drop-state="valid"\]/);

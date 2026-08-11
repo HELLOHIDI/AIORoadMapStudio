@@ -1,4 +1,12 @@
-export const INDUSTRY_OPTIONS = Object.freeze([
+export const NON_INDUSTRY_OPTIONS = Object.freeze([
+  "4차 산업분야", "4차 산업혁명", "ESG", "IP", "기술", "기술창업", "기타", "녹색산업분야", "마케팅", "무역", "미래형 신산업", "사회적기업", "소상공인", "소셜벤처", "수출", "스타기업", "신사업", "신산업", "일반", "제한없음", "지역주력산업", "지식산업분야", "투자", "해외마케팅",
+]);
+
+export const LEGACY_INVALID_REGION_OPTIONS = Object.freeze([
+  "광주 동", "광주 서", "광주 남", "광주 북", "대구 서", "울산 북", "인천 동", "인천 서",
+]);
+
+const ALL_INDUSTRY_OPTIONS = Object.freeze([
   "제한없음", "12대국가전력기술", "2차전지", "3D 프린터", "4차 산업분야", "4차 산업혁명", "5G", "6차 산업", "AI", "AR", "BT", "ESG", "F&B", "ICT", "IP", "IT", "IoT", "O2O", "SW", "SW개발", "SaaS", "VR", "XR", "e-커머스",
   "가상현실", "가속기장치", "건기식", "게임", "고령화", "공공데이터", "공산품", "공예", "관광", "광기술", "광융합", "국방기술", "그린뉴딜", "그린바이오", "그린에너지", "금융", "기계", "기계금속", "기술", "기술창업", "기자재", "기타", "기후",
   "나노", "녹색산업분야", "농기계", "농기자재", "농산업", "농식품", "농업", "농촌융복합",
@@ -15,6 +23,11 @@ export const INDUSTRY_OPTIONS = Object.freeze([
   "패션", "패션테크", "펫 케어", "폐자원", "푸드테크", "플랫폼", "핀테크",
   "항공", "항노화메디컬", "항만", "해양", "해양모빌리티", "해양바이오", "해양수산", "해외마케팅", "해운", "헬스케어", "혁신융합", "홈데코", "화물", "화장품", "화학", "환경",
 ]);
+
+const nonIndustryOptionSet = new Set(NON_INDUSTRY_OPTIONS);
+export const INDUSTRY_OPTIONS = Object.freeze(
+  ALL_INDUSTRY_OPTIONS.filter((option) => !nonIndustryOptionSet.has(option)),
+);
 
 export const REGION_OPTIONS = Object.freeze([
   "전국", "강원", "경기", "경남", "경북", "광명", "광주", "구리", "구미", "군포", "김해", "남양주", "대구", "대전", "동두천", "부산", "상주", "서울", "세종", "시흥", "안양", "양주", "연천", "영천", "예천", "울산", "원주", "의성", "의정부", "인천", "전남", "전북", "전주", "제주", "종로", "창원", "청송", "춘천", "충남", "충북", "포항", "호남",

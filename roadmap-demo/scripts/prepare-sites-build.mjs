@@ -10,7 +10,7 @@ const worker = path.join(root, "worker", "index.js");
 const hosting = path.join(root, ".openai", "hosting.json");
 const migrations = path.join(root, "drizzle");
 const catalogOptions = path.join(root, "catalog-options.js");
-const catalogImport = 'import { INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";';
+const catalogImport = 'import { INDUSTRY_OPTIONS, LEGACY_INVALID_REGION_OPTIONS, NON_INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";';
 
 for (const file of [index, worker, hosting, migrations, catalogOptions]) {
   if (!existsSync(file)) throw new Error("Missing Sites build input: " + file);

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";
+import { groupAdministrativeRegionOptions } from "../catalog-tag-policy.js";
 import { formatAmount } from "./amount.js";
-import { catalogPayload, copyCatalogProgram, EMPTY_CATALOG_PROGRAM, parseCatalogText } from "./catalog.js";
+import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, EMPTY_CATALOG_PROGRAM, formatCatalogBulletText, parseCatalogText } from "./catalog.js";
 import { runPdfPreflight } from "./pdf-preflight.js";
 import { detectPdfRuntime, PDF_RUNTIME } from "./pdf-runtime.js";
 import { allowedCategoriesForTier, buildRoadmapLayout, moveProgramToLane, ROADMAP_CATEGORIES, resolveRoadmapTier } from "./roadmap-policy.js";
@@ -245,7 +246,7 @@ function ProgramEditor({ program, categories, onChange, onDelete }) {
       <input aria-label="사업명" value={program.title} onChange={(event) => onChange({ title: event.target.value })} placeholder="사업명" />
       <input aria-label="시작월" type="number" min="1" max="12" value={program.startMonth} onChange={(event) => onChange({ startMonth: number(event.target.value) })} />
       <input aria-label="종료월" type="number" min="1" max="12" value={program.endMonth} onChange={(event) => onChange({ endMonth: number(event.target.value) })} />
-      <input aria-label="금액" type="number" min="1000000" step="1000000" value={program.amountKrw ?? ""} onChange={(event) => onChange({ amountKrw: event.target.value === "" ? null : Number(event.target.value) })} placeholder="금액(원)" />
+      <input aria-label="금액" type="number" min="1" step="1" value={program.amountKrw ?? ""} onChange={(event) => onChange({ amountKrw: event.target.value === "" ? null : Number(event.target.value) })} placeholder="금액(원)" />
       <button type="button" className="delete-program" onClick={onDelete} aria-label={`${program.title || "새 사업"} 삭제`}>×</button>
     </div>
   );
@@ -323,7 +324,103 @@ function TagPicker({ label, options, value = [], onChange, onCreate, collapsible
   );
 }
 
-function CatalogForm({ form, state, options, onChange, onCancel, onCreateOption, onDirty, onSubmit }) {
+function RegionFilter({ options, value = [], onChange }) {
+  const [query, setQuery] = useState("");
+  const selected = Array.isArray(value) ? value : [];
+  const grouped = useMemo(() => groupAdministrativeRegionOptions(options), [options]);
+  const optionGroups = useMemo(() => new Map(
+    grouped.groups.flatMap((group) => group.options.map((option) => [option, group])),
+  ), [grouped]);
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const searchResults = normalizedQuery ? grouped.groups.flatMap((group) => group.options
+    .filter((option) => option.toLocaleLowerCase().includes(normalizedQuery)
+      || group.label.toLocaleLowerCase().includes(normalizedQuery))
+    .map((option) => ({ group, option }))) : [];
+  const displayOption = (group, option) => option === group.key
+    ? `${group.label} 전체`
+    : option.startsWith(`${group.key} `) ? option.slice(group.key.length + 1) : option;
+  const toggle = (option) => {
+    if (selected.includes(option)) {
+      onChange(selected.filter((item) => item !== option));
+      return;
+    }
+    if (option === "전국") {
+      onChange([option]);
+      return;
+    }
+    const group = optionGroups.get(option);
+    let next = selected.filter((item) => item !== "전국");
+    if (group) {
+      next = option === group.key
+        ? next.filter((item) => !group.options.includes(item))
+        : next.filter((item) => item !== group.key);
+    }
+    onChange([...next, option]);
+  };
+  const optionLabel = (group, option) => (
+    <label key={option}>
+      <input type="checkbox" checked={selected.includes(option)} onChange={() => toggle(option)} />
+      <span>{displayOption(group, option)}</span>
+    </label>
+  );
+
+  return (
+    <details className="tag-picker-disclosure region-filter-disclosure">
+      <summary>
+        <span>지역 필터</span>
+        <span className="tag-picker-disclosure__count">{selected.length ? `${selected.length}개 선택` : "선택 안 함"}</span>
+      </summary>
+      <fieldset className="tag-picker region-filter" aria-label="대한민국 행정구역별 지역 필터">
+        {selected.length ? (
+          <div className="tag-picker__selected" aria-label="선택한 지역 필터">
+            {selected.map((option) => (
+              <button type="button" key={option} onClick={() => toggle(option)} aria-label={`${option} 선택 해제`}>{option} ×</button>
+            ))}
+          </div>
+        ) : <p className="tag-picker__empty">선택된 지역이 없습니다.</p>}
+        <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="시·도, 시·군·구 검색" aria-label="지역 검색" />
+        {normalizedQuery ? (
+          <div className="region-filter__search-results" aria-label="지역 검색 결과">
+            {searchResults.map(({ group, option }) => (
+              <div className="region-filter__search-option" key={`${group.key}-${option}`}>
+                <small>{group.label}</small>
+                {optionLabel(group, option)}
+              </div>
+            ))}
+            {!searchResults.length ? <p>검색 결과가 없습니다.</p> : null}
+          </div>
+        ) : (
+          <>
+            {grouped.nationwide ? (
+              <label className="region-filter__nationwide">
+                <input type="checkbox" checked={selected.includes("전국")} onChange={() => toggle("전국")} />
+                <span>전국</span>
+              </label>
+            ) : null}
+            <div className="region-filter__groups">
+              {grouped.groups.map((group) => {
+                const selectedCount = group.options.filter((option) => selected.includes(option)).length;
+                return (
+                  <details className="region-filter__group" key={group.key}>
+                    <summary>
+                      <span>{group.label}</span>
+                      <small>{selectedCount ? `${selectedCount}개 선택` : `${Math.max(0, group.options.length - 1)}개 지역`}</small>
+                    </summary>
+                    <div className="region-filter__group-options" role="group" aria-label={`${group.label} 지역`}>
+                      {group.options.map((option) => optionLabel(group, option))}
+                    </div>
+                  </details>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </fieldset>
+    </details>
+  );
+}
+
+function CatalogForm({ categories, form, state, options, onChange, onCancel, onCreateOption, onDirty, onSubmit }) {
   const [importText, setImportText] = useState("");
   const [importErrors, setImportErrors] = useState([]);
   const values = form.values;
@@ -407,7 +504,7 @@ function CatalogForm({ form, state, options, onChange, onCancel, onCreateOption,
         <label>
           <span>구분</span>
           <select value={values.category} onChange={(event) => change("category", event.target.value)} aria-invalid={invalid("category")}>
-            {ROADMAP_CATEGORIES.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
+            {categories.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
           </select>
           <FieldError errors={state.fields} name="category" />
         </label>
@@ -423,7 +520,7 @@ function CatalogForm({ form, state, options, onChange, onCancel, onCreateOption,
         </label>
         <label>
           <span>최대 지원금액(원)</span>
-          <input type="number" min="1000000" step="1000000" value={values.amountKrw} onChange={(event) => change("amountKrw", event.target.value)} aria-invalid={invalid("amountKrw")} placeholder="미정이면 비워두기" />
+          <input type="number" min="1" step="1" value={values.amountKrw} onChange={(event) => change("amountKrw", event.target.value)} aria-invalid={invalid("amountKrw")} placeholder="미정이면 비워두기" />
           <FieldError errors={state.fields} name="amountKrw" />
         </label>
         <label>
@@ -474,7 +571,7 @@ export function App() {
   const [catalog, setCatalog] = useState({ status: "idle", items: [], total: 0, limit: 50, offset: 0, error: "" });
   const [catalogSearch, setCatalogSearch] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
-  const [catalogCategory, setCatalogCategory] = useState(ROADMAP_CATEGORIES[0].key);
+  const [catalogCategory, setCatalogCategory] = useState(CATALOG_CATEGORIES[0].key);
   const [catalogIndustries, setCatalogIndustries] = useState([]);
   const [catalogRegions, setCatalogRegions] = useState([]);
   const [catalogOptions, setCatalogOptions] = useState({
@@ -511,6 +608,12 @@ export function App() {
   const allowedCategories = useMemo(() => allowedCategoriesForTier(documentTier), [documentTier]);
   const allowedCategoryKeys = useMemo(() => new Set(allowedCategories.map(({ key }) => key)), [allowedCategories]);
   const firstAllowedCategory = allowedCategories[0].key;
+  const catalogCategories = useMemo(
+    () => CATALOG_CATEGORIES.filter(({ key }) => allowedCategoryKeys.has(key)),
+    [allowedCategoryKeys],
+  );
+  const catalogCategoryKeys = useMemo(() => new Set(catalogCategories.map(({ key }) => key)), [catalogCategories]);
+  const firstCatalogCategory = catalogCategories[0].key;
   const isDirty = screen === "editor" && documentSignature !== savedSignature;
   const hasUnsavedWork = isDirty || catalogFormDirty;
   const currentRuntime = useMemo(() => detectPdfRuntime(), []);
@@ -591,7 +694,7 @@ export function App() {
 
     const params = new URLSearchParams({ limit: "50", offset: String(catalogOffset) });
     if (catalogQuery) params.set("q", catalogQuery);
-    params.set("category", allowedCategoryKeys.has(catalogCategory) ? catalogCategory : firstAllowedCategory);
+    params.set("category", catalogCategoryKeys.has(catalogCategory) ? catalogCategory : firstCatalogCategory);
     catalogIndustries.forEach((value) => params.append("industry", value));
     catalogRegions.forEach((value) => params.append("region", value));
     fetch(`/api/catalog-programs?${params}`, { signal: controller.signal, headers: { accept: "application/json" } })
@@ -606,7 +709,7 @@ export function App() {
       });
 
     return () => controller.abort();
-  }, [screen, mode, catalogQuery, catalogCategory, catalogIndustries, catalogRegions, catalogOffset, catalogRefresh, allowedCategoryKeys, firstAllowedCategory]);
+  }, [screen, mode, catalogQuery, catalogCategory, catalogIndustries, catalogRegions, catalogOffset, catalogRefresh, catalogCategoryKeys, firstCatalogCategory]);
 
   useEffect(() => {
     if (screen !== "editor" || mode !== "roadmap") return undefined;
@@ -693,7 +796,7 @@ export function App() {
     setCatalogForm(null);
     setCatalogFormDirty(false);
     setActiveCategory(firstCategory);
-    setCatalogCategory(firstCategory);
+    setCatalogCategory(CATALOG_CATEGORIES[0].key);
     setCatalogOffset(0);
     setMode("roadmap");
     resetFeedbackUi();
@@ -726,7 +829,7 @@ export function App() {
       setCatalogFormDirty(false);
       const nextFirstCategory = allowedCategoriesForTier(resolveRoadmapTier(data.item.document))[0].key;
       setActiveCategory(nextFirstCategory);
-      setCatalogCategory(nextFirstCategory);
+      setCatalogCategory(CATALOG_CATEGORIES[0].key);
       setCatalogOffset(0);
       setMode("roadmap");
       resetFeedbackUi();
@@ -1381,6 +1484,7 @@ export function App() {
 
           {catalogForm ? (
             <CatalogForm
+              categories={catalogCategories}
               form={catalogForm}
               state={catalogMutation}
               options={catalogOptions}
@@ -1409,7 +1513,7 @@ export function App() {
                 <button type="submit" className="button-secondary">검색</button>
               </form>
               <nav className="category-tabs catalog-category-tabs" aria-label="사업 카탈로그 구분">
-                {allowedCategories.map(({ key, label }) => (
+                {catalogCategories.map(({ key, label }) => (
                   <button type="button" key={key} aria-pressed={catalogCategory === key} onClick={() => {
                     setCatalogCategory(key);
                     setCatalogOffset(0);
@@ -1422,7 +1526,7 @@ export function App() {
                   setCatalogIndustries(next);
                   setCatalogOffset(0);
                 }} />
-                <TagPicker collapsible label="지역 필터" options={catalogOptions.regions} value={catalogRegions} onChange={(next) => {
+                <RegionFilter options={catalogOptions.regions} value={catalogRegions} onChange={(next) => {
                   setCatalogRegions(next);
                   setCatalogOffset(0);
                 }} />
@@ -1477,8 +1581,8 @@ export function App() {
                       </dl>
                       <details>
                         <summary>사업 상세보기</summary>
-                        <p className="catalog-row__detail"><strong>지원대상:</strong><span>{program.target}</span></p>
-                        <p className="catalog-row__detail"><strong>지원 내용:</strong><span>{program.details}</span></p>
+                        <p className="catalog-row__detail"><strong>지원대상:</strong><span>{formatCatalogBulletText(program.target)}</span></p>
+                        <p className="catalog-row__detail"><strong>지원 내용:</strong><span>{formatCatalogBulletText(program.details)}</span></p>
                         <p className="catalog-row__detail"><strong>공고 링크:</strong><a href={program.link} target="_blank" rel="noreferrer">공고 링크 열기</a></p>
                       </details>
                     </div>

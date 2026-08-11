@@ -76,8 +76,8 @@ function validateProgram(program, index, seenIds, allowedCategoryKeys) {
     errors.push(error("E_MONTH_RANGE", `${path}.startMonth`, "시작월과 종료월은 1~12의 정수이며 시작월이 종료월보다 늦을 수 없습니다.", id));
   }
 
-  if (program?.amountKrw != null && (!Number.isSafeInteger(program.amountKrw) || program.amountKrw < 1_000_000)) {
-    errors.push(error("E_AMOUNT_INVALID", `${path}.amountKrw`, "금액은 1백만원 이상의 안전한 정수여야 합니다.", id));
+  if (program?.amountKrw != null && (!Number.isSafeInteger(program.amountKrw) || program.amountKrw <= 0)) {
+    errors.push(error("E_AMOUNT_INVALID", `${path}.amountKrw`, "금액은 1원 이상의 안전한 정수여야 합니다.", id));
   }
   if (!Number.isSafeInteger(program?.sequence) || program.sequence < 0) {
     errors.push(error("E_SEQUENCE_INVALID", `${path}.sequence`, "정렬 순서는 0 이상의 안전한 정수여야 합니다.", id));

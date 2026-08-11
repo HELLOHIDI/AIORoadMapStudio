@@ -1,17 +1,20 @@
-import { INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";
+import { INDUSTRY_OPTIONS, LEGACY_INVALID_REGION_OPTIONS, NON_INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";
 
 const CATALOG_PATH = "/api/catalog-programs";
 const CATALOG_OPTIONS_PATH = "/api/catalog-options";
 const ROADMAP_PATH = "/api/roadmaps";
 const FEEDBACK_AUTH_PATH = "/api/feedback-auth/session";
 const CATEGORIES = new Set(["consulting", "business", "voucher", "ip", "certification"]);
+const CATALOG_CATEGORIES = new Set(["business", "voucher", "ip", "certification"]);
 const ROADMAP_TIERS = new Set(["premium", "standard"]);
 const STANDARD_ROADMAP_CATEGORIES = new Set(["consulting", "business", "voucher", "ip"]);
 const FIELDS = new Set(["category", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "industries", "regions"]);
 const ROADMAP_FIELDS = new Set(["tier", "clientName", "programs"]);
 const ROADMAP_PROGRAM_FIELDS = new Set(["id", "category", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "sequence", "laneIndex"]);
 const INDUSTRIES = new Set(INDUSTRY_OPTIONS);
+const NON_INDUSTRIES = new Set(NON_INDUSTRY_OPTIONS);
 const REGIONS = new Set(REGION_OPTIONS);
+const INVALID_REGIONS = new Set(LEGACY_INVALID_REGION_OPTIONS);
 const OPTION_KINDS = new Set(["industry", "region"]);
 const MAX_BODY_BYTES = 500_000;
 const MAX_ROADMAP_PROGRAMS = 500;
@@ -294,7 +297,7 @@ function validateCatalogProgramWithOptions(input, options) {
     regions: cleanTags(input.regions, options.regions, "regions", fields),
   };
 
-  if (!CATEGORIES.has(value.category)) fields.category = "지원하지 않는 구분입니다.";
+  if (!CATALOG_CATEGORIES.has(value.category)) fields.category = "사업 카탈로그에서 지원하지 않는 구분입니다.";
   if (!value.title || value.title.length > 240) fields.title = "사업명은 1~240자로 입력해 주세요.";
   try {
     const url = new URL(value.link);
@@ -303,8 +306,8 @@ function validateCatalogProgramWithOptions(input, options) {
   } catch {
     fields.link = "http 또는 https 링크를 입력해 주세요.";
   }
-  if (value.amountKrw !== null && (!Number.isSafeInteger(value.amountKrw) || value.amountKrw < 1_000_000)) {
-    fields.amountKrw = "지원금액은 비워 두거나 100만원 이상의 정수로 입력해 주세요.";
+  if (value.amountKrw !== null && (!Number.isSafeInteger(value.amountKrw) || value.amountKrw <= 0)) {
+    fields.amountKrw = "지원금액은 비워 두거나 1원 이상의 정수로 입력해 주세요.";
   }
   if (!Number.isInteger(value.startMonth) || !Number.isInteger(value.endMonth)
     || value.startMonth < 1 || value.endMonth > 12 || value.startMonth > value.endMonth) {
@@ -322,8 +325,8 @@ async function catalogOptionSets(db) {
   const regions = new Set(REGION_OPTIONS);
   const rows = await db.prepare("SELECT kind, value FROM catalog_options ORDER BY kind, value").bind().all();
   for (const row of rows.results ?? []) {
-    if (row.kind === "industry") industries.add(row.value);
-    if (row.kind === "region") regions.add(row.value);
+    if (row.kind === "industry" && !NON_INDUSTRIES.has(row.value)) industries.add(row.value);
+    if (row.kind === "region" && !INVALID_REGIONS.has(row.value)) regions.add(row.value);
   }
   return { industries, regions };
 }
@@ -346,6 +349,12 @@ async function createCatalogOption(request, db) {
     || Object.keys(input).some((key) => key !== "kind" && key !== "value")
     || !OPTION_KINDS.has(kind) || value.length < 1 || value.length > 100) {
     return apiError(400, "공용 선택지를 확인해 주세요.");
+  }
+  if (kind === "industry" && NON_INDUSTRIES.has(value)) {
+    return apiError(400, "업종이 아닌 범용 태그는 추가할 수 없습니다.");
+  }
+  if (kind === "region" && INVALID_REGIONS.has(value)) {
+    return apiError(400, "잘못 축약된 지역 태그는 추가할 수 없습니다.");
   }
   if ((kind === "industry" ? INDUSTRIES : REGIONS).has(value)) {
     return json({ item: { kind, value }, created: false });
@@ -459,11 +468,14 @@ async function listCatalog(request, db) {
   const offset = Number.isInteger(requestedOffset) ? Math.min(Math.max(requestedOffset, 0), 100_000) : 0;
   const filters = [];
   const searchParams = [];
+  if (category && !CATALOG_CATEGORIES.has(category)) {
+    return apiError(400, "사업 카탈로그에서 지원하지 않는 구분입니다.");
+  }
   if (q) {
     filters.push("(title LIKE ? OR target LIKE ? OR details LIKE ?)");
     searchParams.push(`%${q}%`, `%${q}%`, `%${q}%`);
   }
-  if (CATEGORIES.has(category)) {
+  if (CATALOG_CATEGORIES.has(category)) {
     filters.push("category = ?");
     searchParams.push(category);
   }

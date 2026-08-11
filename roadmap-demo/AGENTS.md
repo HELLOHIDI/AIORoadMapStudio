@@ -76,6 +76,9 @@ Build app UI in `src/`. Preserve the Sites packaging and static-fallback contrac
 
 - This is the binding policy for the next full catalog ingestion. Do not treat the prior 10-minute crawl as a resumable production run; restart from row 1 after re-filtering the source workbook.
 - Preserve the standing source filters: exclude 2024 notices and support fields `인력` and `경영`.
+- Reserve `컨설팅` for roadmap content written directly by the author; never ingest a government support notice into the shared catalog as `consulting`. Classify notices as `business` by default, and use `voucher` only when the benefit is delivered through an explicit voucher, credit, point, coupon, or equivalent service-use allowance.
+- Apply the same exclusion to the live catalog and every future ingestion: remove programs that directly provide financial guarantees or guarantee-fee support, and programs that directly support hiring, employment, new-job creation, employee wages, or employment-linked certification.
+- Do not exclude a program solely because it mentions generic project labor costs, outsourced interpreters or service staff, workforce training, an existing-headcount eligibility rule, `무보증` grant terms, patent assurance, or a Credit Guarantee Fund investment review; exclude it only when the program itself provides guarantee or hiring/employment support.
 - Before crawling details, re-filter the previously reviewed workbook in its existing row order. Exclude any record whose normalized title contains `보증`, `연장`, or `추가모집`; normalize by removing whitespace so `추가 모집` is excluded as well.
 - Normalize every support period to `YY.MM ~ YY.MM`. Even a single-month period repeats the same month on both sides.
 - Rewrite `지원대상` as one concise sentence without dropping eligibility restrictions that affect who may apply.

@@ -231,6 +231,17 @@ test("validates and persists catalog CRUD through D1", async () => {
   assert.equal(invalid.status, 400);
   assert.equal(DB.rows.length, 0);
 
+  const consulting = await request("/api/catalog-programs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...catalogInput, category: "consulting" }),
+  });
+  assert.equal(consulting.status, 400);
+  assert.equal(DB.rows.length, 0);
+
+  const consultingList = await request("/api/catalog-programs?category=consulting&limit=50&offset=0");
+  assert.equal(consultingList.status, 400);
+
   const wrongMediaType = await request("/api/catalog-programs", {
     method: "POST",
     body: JSON.stringify(catalogInput),
@@ -271,10 +282,11 @@ test("validates and persists catalog CRUD through D1", async () => {
   const updatedResponse = await request(`/api/catalog-programs/${created.item.id}`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ...catalogInput, title: "수정된 사업" }),
+    body: JSON.stringify({ ...catalogInput, title: "수정된 사업", amountKrw: 300_000 }),
   });
   assert.equal(updatedResponse.status, 200);
   assert.equal(DB.rows[0].title, "수정된 사업");
+  assert.equal(DB.rows[0].amountKrw, 300_000);
 
   const deletedResponse = await request(`/api/catalog-programs/${created.item.id}`, { method: "DELETE" });
   assert.equal(deletedResponse.status, 200);
@@ -314,6 +326,22 @@ test("persists catalog options independently and accepts them in catalog writes"
   });
   assert.equal(DB.options.length, 1);
 
+  const nonIndustryResponse = await request("/api/catalog-options", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind: "industry", value: "마케팅" }),
+  });
+  assert.equal(nonIndustryResponse.status, 400);
+  DB.options.push({ kind: "industry", value: "마케팅", createdAt: new Date().toISOString() });
+
+  const invalidRegionResponse = await request("/api/catalog-options", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind: "region", value: "광주 동" }),
+  });
+  assert.equal(invalidRegionResponse.status, 400);
+  DB.options.push({ kind: "region", value: "광주 동", createdAt: new Date().toISOString() });
+
   const regionResponse = await request("/api/catalog-options", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -327,7 +355,7 @@ test("persists catalog options independently and accepts them in catalog writes"
     body: JSON.stringify({ kind: "industry", value: " " }),
   });
   assert.equal(invalidResponse.status, 400);
-  assert.equal(DB.options.length, 2);
+  assert.equal(DB.options.length, 4);
 
   const unknownFieldResponse = await request("/api/catalog-options", {
     method: "POST",
@@ -335,7 +363,7 @@ test("persists catalog options independently and accepts them in catalog writes"
     body: JSON.stringify({ kind: "industry", value: "Valid", extra: true }),
   });
   assert.equal(unknownFieldResponse.status, 400);
-  assert.equal(DB.options.length, 2);
+  assert.equal(DB.options.length, 4);
 
   const optionsResponse = await request("/api/catalog-options");
   const options = await optionsResponse.json();
@@ -343,6 +371,8 @@ test("persists catalog options independently and accepts them in catalog writes"
   assert.equal(options.regions.includes(REGION_OPTIONS[0]), true);
   assert.equal(options.industries.includes("Space Tech"), true);
   assert.equal(options.regions.includes("Mars Base"), true);
+  assert.equal(options.industries.includes("마케팅"), false);
+  assert.equal(options.regions.includes("광주 동"), false);
 
   const failedCatalog = await request("/api/catalog-programs", {
     method: "POST",
@@ -350,7 +380,7 @@ test("persists catalog options independently and accepts them in catalog writes"
     body: JSON.stringify({ ...catalogInput, link: "ftp://example.test", industries: ["Space Tech"], regions: ["Mars Base"] }),
   });
   assert.equal(failedCatalog.status, 400);
-  assert.equal(DB.options.length, 2);
+  assert.equal(DB.options.length, 4);
   assert.equal(DB.rows.length, 0);
 
   const createdCatalog = await request("/api/catalog-programs", {

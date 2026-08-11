@@ -1,5 +1,9 @@
 import { ROADMAP_CATEGORIES } from "./roadmap-policy.js";
 
+export const CATALOG_CATEGORIES = Object.freeze(
+  ROADMAP_CATEGORIES.filter(({ key }) => key !== "consulting"),
+);
+
 export const EMPTY_CATALOG_PROGRAM = Object.freeze({
   category: "business",
   title: "",
@@ -13,11 +17,20 @@ export const EMPTY_CATALOG_PROGRAM = Object.freeze({
   regions: [],
 });
 
-const categoryByLabel = new Map(ROADMAP_CATEGORIES.map(({ key, label }) => [label, key]));
+const categoryByLabel = new Map(CATALOG_CATEGORIES.map(({ key, label }) => [label, key]));
 const amountUnits = { 원: 1, 만원: 10_000, 백만원: 1_000_000, 천만원: 10_000_000, 억원: 100_000_000 };
 
 function uniqueStrings(values) {
   return [...new Set((Array.isArray(values) ? values : []).map((value) => value.trim()).filter(Boolean))];
+}
+
+export function formatCatalogBulletText(value) {
+  return String(value ?? "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]*\n[ \t]*/g, "\n")
+    .replace(/(^|[ \t]+)-[ \t]+(?=\S)/g, (match, prefix) => `${prefix ? "\n" : ""}- `)
+    .replace(/\n{2,}/g, "\n")
+    .trim();
 }
 
 function parseAmount(value) {
@@ -81,10 +94,10 @@ export function parseCatalogText(text) {
     else warnings.push("지원기간을 n~n월 형식으로 확인해 주세요.");
   }
 
-  if (!sections.지원금액) warnings.push("지원금액을 n백만원 또는 n억원 형식으로 입력해 주세요.");
+  if (!sections.지원금액) warnings.push("지원금액을 n만원, n백만원 또는 n억원 형식으로 입력해 주세요.");
   else {
     const amountKrw = parseAmount(sections.지원금액);
-    if (amountKrw === null || amountKrw < 1_000_000) warnings.push("지원금액을 n백만원 또는 n억원 형식으로 확인해 주세요.");
+    if (amountKrw === null || amountKrw <= 0) warnings.push("지원금액을 n만원, n백만원 또는 n억원 형식으로 확인해 주세요.");
     else values.amountKrw = amountKrw;
   }
 

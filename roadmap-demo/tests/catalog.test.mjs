@@ -1,7 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";
-import { catalogPayload, copyCatalogProgram, parseCatalogText } from "../src/catalog.js";
+import { INDUSTRY_OPTIONS, NON_INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";
+import { ADMINISTRATIVE_REGION_GROUPS, groupAdministrativeRegionOptions, inferIndustries, inferRegions } from "../catalog-tag-policy.js";
+import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, formatCatalogBulletText, parseCatalogText } from "../src/catalog.js";
+
+test("keeps consulting out of the shared catalog categories", () => {
+  assert.deepEqual(CATALOG_CATEGORIES.map(({ key }) => key), ["business", "voucher", "ip", "certification"]);
+  const parsed = parseCatalogText(`[컨설팅] 직접 작성 항목
+- 링크: https://example.test/notice
+- 지원기간: 6~7월
+- 지원금액: 3백만원
+- 지원대상: 스타트업
+- 지원내용: 자문`);
+  assert.equal(parsed.values.category, undefined);
+  assert.ok(parsed.warnings.includes("구분 “컨설팅”을 확인해 주세요."));
+});
+
+test("breaks catalog targets and details at spaced bullet hyphens", () => {
+  assert.equal(
+    formatCatalogBulletText("통합 지원 - 진단 및 컨설팅 - 시제품 제작"),
+    "통합 지원\n- 진단 및 컨설팅\n- 시제품 제작",
+  );
+  assert.equal(
+    formatCatalogBulletText("- 첫 번째 항목\n - 두 번째 항목"),
+    "- 첫 번째 항목\n- 두 번째 항목",
+  );
+  assert.equal(formatCatalogBulletText("온-오프라인 및 6-7월"), "온-오프라인 및 6-7월");
+});
 
 test("normalizes a catalog form into the API payload", () => {
   assert.deepEqual(catalogPayload({
@@ -52,6 +77,7 @@ test("parses the agreed support-program text format without saving it", () => {
     warnings: [],
   });
   assert.equal(parseCatalogText("[사업화] 테스트\n- 지원금액: 1.5억원").values.amountKrw, 150_000_000);
+  assert.equal(parseCatalogText("[사업화] 테스트\n- 지원금액: 30만원").values.amountKrw, 300_000);
 });
 
 test("keeps incomplete source text in the source-correction path", () => {
@@ -65,17 +91,65 @@ test("keeps incomplete source text in the source-correction path", () => {
     "지원대상을 입력해 주세요.",
     "지원내용을 입력해 주세요.",
     "지원기간을 n~n월 형식으로 확인해 주세요.",
-    "지원금액을 n백만원 또는 n억원 형식으로 입력해 주세요.",
+    "지원금액을 n만원, n백만원 또는 n억원 형식으로 입력해 주세요.",
   ]);
 });
 
 test("keeps the workbook tag lists complete and unique", () => {
-  assert.equal(INDUSTRY_OPTIONS.length, 239);
-  assert.equal(new Set(INDUSTRY_OPTIONS).size, 239);
+  assert.ok(INDUSTRY_OPTIONS.length > 150);
+  assert.equal(new Set(INDUSTRY_OPTIONS).size, INDUSTRY_OPTIONS.length);
   assert.ok(INDUSTRY_OPTIONS.includes("해양수산"));
+  for (const tag of NON_INDUSTRY_OPTIONS) assert.equal(INDUSTRY_OPTIONS.includes(tag), false);
   assert.equal(REGION_OPTIONS.length, 42);
   assert.equal(new Set(REGION_OPTIONS).size, 42);
   assert.ok(REGION_OPTIONS.includes("전국"));
+});
+
+test("replaces non-industry labels with two industry tags", () => {
+  const industries = inferIndustries({
+    title: "2026년 AI 영상분석 시스템 사업화 지원",
+    target: "정보통신 소프트웨어 중소기업",
+    details: "기술 고도화와 마케팅 비용 지원",
+    industries: ["기술", "마케팅"],
+  });
+  assert.equal(industries.length, 2);
+  assert.ok(industries.includes("AI"));
+  assert.equal(industries.some((tag) => NON_INDUSTRY_OPTIONS.includes(tag)), false);
+});
+
+test("adds unregistered city and county tags from the title and eligibility", () => {
+  assert.deepEqual(
+    inferRegions({ title: "[충남] 부여군 2026년 기업지원사업", target: "부여군 소재 기업", regions: ["충남"] }),
+    ["충남", "부여"],
+  );
+  assert.deepEqual(
+    inferRegions({ title: "2026년 김해시 기업지원사업", target: "김해시 소재 기업", regions: ["전국"] }),
+    ["경남", "김해"],
+  );
+  assert.deepEqual(
+    inferRegions({ title: "[전남광주] 통합 지원사업", target: "전남 또는 광주 소재 기업", regions: ["전국"] }),
+    ["광주", "전남"],
+  );
+  assert.deepEqual(
+    inferRegions({ title: "[광주] 동구 기업지원사업", target: "광주광역시 동구 소재 기업", regions: ["광주"] }),
+    ["광주", "광주 동구"],
+  );
+});
+
+test("groups region filters under the 17 first-level administrative divisions", () => {
+  assert.equal(ADMINISTRATIVE_REGION_GROUPS.length, 17);
+  assert.deepEqual(ADMINISTRATIVE_REGION_GROUPS.map(({ key }) => key), [
+    "서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기",
+    "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주",
+  ]);
+  const grouped = groupAdministrativeRegionOptions([
+    "전국", "경기", "경기 광주", "충남", "부여", "경남", "김해", "호남", "서해",
+  ]);
+  assert.equal(grouped.nationwide, true);
+  assert.deepEqual(grouped.groups.find(({ key }) => key === "경기")?.options, ["경기", "경기 광주"]);
+  assert.deepEqual(grouped.groups.find(({ key }) => key === "충남")?.options, ["충남", "부여"]);
+  assert.deepEqual(grouped.groups.find(({ key }) => key === "경남")?.options, ["경남", "김해"]);
+  assert.deepEqual(grouped.ungrouped, ["호남", "서해"]);
 });
 
 test("copies a catalog master into an independent roadmap program", () => {

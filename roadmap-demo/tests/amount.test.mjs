@@ -4,6 +4,9 @@ import { formatAmount } from "../src/amount.js";
 
 test("formats the agreed KRW display units", () => {
   assert.equal(formatAmount(null), "");
+  assert.equal(formatAmount(300_000), "30만 원");
+  assert.equal(formatAmount(780_000), "78만 원");
+  assert.equal(formatAmount(123_456), "123,456원");
   assert.equal(formatAmount(10_000_000), "10백만 원");
   assert.equal(formatAmount(95_000_000), "95백만 원");
   assert.equal(formatAmount(99_600_000), "100백만 원");
@@ -13,8 +16,8 @@ test("formats the agreed KRW display units", () => {
   assert.equal(formatAmount(1_234_000_000), "12.3억원");
 });
 
-test("rejects amounts the PDF policy cannot display", () => {
-  for (const value of [0, -1, 999_999, Number.NaN, Number.POSITIVE_INFINITY]) {
+test("rejects non-positive or unsafe amounts", () => {
+  for (const value of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
     assert.throws(() => formatAmount(value), RangeError);
   }
 });
