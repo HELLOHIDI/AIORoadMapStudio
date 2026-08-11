@@ -2,6 +2,14 @@
 
 Run the local server yourself and open the preview in the browser available to this environment. Do not give the user server-start instructions when you can run it.
 
+## GitHub and Sites delivery contract
+
+- One Ultragoal request uses one Issue, one branch, and one PR. Keep the Issue self-contained; `.omx/` is not pushed.
+- The PR must use `Refs #<issue>` and record pre-merge validation only. Never use an auto-closing keyword or put post-merge deployment facts in the PR.
+- Before merge, run `npm test`, `npm run build`, and `npm run test:sites`. After merge, use the exact `origin/master` SHA to save a Sites version, deploy it privately, and post the SHA, version ID, deployment ID/status, private URL, and timestamp to the Issue.
+- Close the Issue only after successful private deployment evidence exists. If validation, Sites, or comment posting fails, leave it open; a correction before completion uses another PR linked with `Refs #<issue>`.
+- A new request after an Issue is closed starts a new Issue, branch, PR, and private deployment. Public or shared deployment requires explicit approval.
+
 Before making substantial visual changes, use the Product Design plugin's `get-context` skill when the visual source is unclear or no longer matches the current goal. When the user gives durable prototype-specific design feedback, preferences, or decisions, record them in `AGENTS.md`.
 
 ## Product identity boundary

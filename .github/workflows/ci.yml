@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: roadmap-demo/package-lock.json
+      - name: npm ci
+        working-directory: roadmap-demo
+        run: npm ci
+      - name: npm test
+        working-directory: roadmap-demo
+        run: npm test
+      - name: npm run build
+        working-directory: roadmap-demo
+        run: npm run build
+      - name: npm run test:sites
+        working-directory: roadmap-demo
+        run: npm run test:sites
+      - name: git diff --check
+        run: git diff --check ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}
