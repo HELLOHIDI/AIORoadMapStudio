@@ -234,6 +234,7 @@ test("exchanges one program with two non-overlapping target-lane occupants", () 
   assert.equal(result.programs.find((item) => item.id === "lower").laneIndex, 0);
   assert.equal(result.programs.find((item) => item.id === "left").laneIndex, 1);
   assert.equal(result.programs.find((item) => item.id === "right").laneIndex, 1);
+  assert.deepEqual(result.programs.map(({ id, startMonth, endMonth }) => ({ id, startMonth, endMonth })), programs.map(({ id, startMonth, endMonth }) => ({ id, startMonth, endMonth })));
   assert.deepEqual(result.programs.map(({ startMonth, endMonth }) => [startMonth, endMonth]), [[3, 4], [2, 2], [5, 5]]);
 });
 
@@ -250,6 +251,7 @@ test("exchanges a dragged lane-pair member with the one target-lane program", ()
   assert.equal(result.programs.find((item) => item.id === "left").laneIndex, 1);
   assert.equal(result.programs.find((item) => item.id === "right").laneIndex, 1);
   assert.equal(result.programs.find((item) => item.id === "lower").laneIndex, 0);
+  assert.deepEqual(result.programs.map(({ id, startMonth, endMonth }) => ({ id, startMonth, endMonth })), programs.map(({ id, startMonth, endMonth }) => ({ id, startMonth, endMonth })));
 });
 
 test("routes an invalid pair exchange through the existing lane move policy", () => {

@@ -605,7 +605,7 @@ export function App() {
   const [catalogSearch, setCatalogSearch] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogCategory, setCatalogCategory] = useState(CATALOG_CATEGORIES[0].key);
-  const [catalogSupportYear, setCatalogSupportYear] = useState(String(currentSupportYear));
+  const [catalogSupportYear, setCatalogSupportYear] = useState("");
   const [catalogStartMonth, setCatalogStartMonth] = useState("1");
   const [catalogEndMonth, setCatalogEndMonth] = useState("12");
   const [catalogIndustries, setCatalogIndustries] = useState([]);
@@ -733,9 +733,11 @@ export function App() {
     const params = new URLSearchParams({ limit: "50", offset: String(catalogOffset) });
     if (catalogQuery) params.set("q", catalogQuery);
     params.set("category", catalogCategoryKeys.has(catalogCategory) ? catalogCategory : firstCatalogCategory);
-    params.set("supportYear", catalogSupportYear);
-    params.set("startMonth", catalogStartMonth);
-    params.set("endMonth", catalogEndMonth);
+    if (catalogSupportYear) params.set("supportYear", catalogSupportYear);
+    if (catalogStartMonth !== "1" || catalogEndMonth !== "12") {
+      params.set("startMonth", catalogStartMonth);
+      params.set("endMonth", catalogEndMonth);
+    }
     catalogIndustries.forEach((value) => params.append("industry", value));
     catalogRegions.forEach((value) => params.append("region", value));
     if (catalogCategory === "business") {
@@ -1026,11 +1028,14 @@ export function App() {
   const dropProgram = (event, programId, targetLaneIndex) => {
     const section = layout.sections.find((item) => item.key === document.programs.find((item) => item.id === programId)?.category);
     const sourceLaneIndex = section?.lanes.findIndex((lane) => lane.some((item) => item.id === programId));
+    if (targetLaneIndex !== sourceLaneIndex) {
+      moveProgram(programId, targetLaneIndex);
+      return;
+    }
     const monthWidth = event.currentTarget.getBoundingClientRect().width / 12;
     const startClientX = dragStartClientX.current?.programId === programId ? dragStartClientX.current.clientX : event.clientX;
     const deltaMonths = monthWidth ? Math.round((event.clientX - startClientX) / monthWidth) : 0;
-    if (targetLaneIndex === sourceLaneIndex && (deltaMonths === -1 || deltaMonths === 1)) shiftProgram(programId, deltaMonths);
-    else moveProgram(programId, targetLaneIndex);
+    if (deltaMonths === -1 || deltaMonths === 1) shiftProgram(programId, deltaMonths);
   };
 
   const openProgramFeedback = (programId) => {
@@ -1353,7 +1358,7 @@ export function App() {
   )));
   const canGoBack = catalogOffset > 0;
   const canGoForward = catalogOffset + catalog.items.length < catalog.total;
-  const catalogPeriodChanged = catalogSupportYear !== String(currentSupportYear) || catalogStartMonth !== "1" || catalogEndMonth !== "12";
+  const catalogPeriodChanged = Boolean(catalogSupportYear) || catalogStartMonth !== "1" || catalogEndMonth !== "12";
   const hasCatalogFilters = Boolean(catalogQuery || catalogPeriodChanged || catalogIndustries.length || catalogRegions.length || catalogBusinessSubcategories.length);
   const activePrograms = document.programs.filter((program) => program.category === activeCategory && allowedCategoryKeys.has(program.category));
   const draggingProgram = document.programs.find((program) => program.id === draggingProgramId);
