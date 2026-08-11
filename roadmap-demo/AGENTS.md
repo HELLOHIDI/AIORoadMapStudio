@@ -2,7 +2,7 @@
 
 Run the local server yourself and open the preview in the browser available to this environment. Do not give the user server-start instructions when you can run it.
 
-## GitHub and Sites delivery contract
+## Authoritative GitHub and Sites delivery contract
 
 - One Ultragoal request uses one Issue, one branch, and one PR. Keep the Issue self-contained; `.omx/` is not pushed.
 - The PR must use `Refs #<issue>` and record pre-merge validation only. Never use an auto-closing keyword or put post-merge deployment facts in the PR.
