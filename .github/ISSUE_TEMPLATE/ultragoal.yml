@@ -1,0 +1,49 @@
+name: Ultragoal delivery
+description: Plan and track one complete delivery loop.
+title: "feat: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One Ultragoal request uses one Issue, one branch, and one PR.
+        This Issue closes only after private Sites deployment evidence is posted.
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective and observable outcome
+      description: State the user-visible result and how it will be verified.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: In-scope work
+      description: List files, behavior, and operational changes included in this request.
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Explicit non-goals
+      description: State what this request must not change.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Testable acceptance criteria
+      description: List checks or observable conditions that prove completion.
+    validations:
+      required: true
+  - type: checkboxes
+    id: delivery
+    attributes:
+      label: Ultragoal checklist
+      options:
+        - label: I will use one branch and one PR for this Issue.
+          required: true
+        - label: I will record pre-merge validation in the PR.
+          required: true
+        - label: I will post private Sites deployment evidence before closing this Issue.
+          required: true
