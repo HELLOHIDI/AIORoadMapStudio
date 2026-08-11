@@ -124,6 +124,20 @@ test("브라우저에서 로드된 승인 글꼴로 프로그램 제목 폭을 �
   assert.ok(Math.abs(widths["width-program"] - 25.4) < 0.001);
 });
 
+test("PPTX uses the roadmap-only business or marketing prefix", async () => {
+  const { layout, slideXml } = await buildPackage({
+    clientName: "표시 구분",
+    programs: [
+      { id: "business-label", category: "business", title: "사업화 지원", startMonth: 1, endMonth: 1, amountKrw: null, sequence: 0 },
+      { id: "marketing-label", category: "business", displayCategory: "marketing", title: "홍보 지원", startMonth: 2, endMonth: 2, amountKrw: null, sequence: 1 },
+    ],
+  });
+
+  assert.equal(layout.errors.length, 0);
+  assert.match(slideXml, /\[사업화] 사업화 지원/);
+  assert.match(slideXml, /\[마케팅] 홍보 지원/);
+});
+
 test("레이아웃 오류가 있으면 PPTX 생성을 차단하고 원래 오류를 보존한다", async () => {
   const layout = buildRoadmapLayout({ clientName: "", programs: [] });
   const logo = await logoData();

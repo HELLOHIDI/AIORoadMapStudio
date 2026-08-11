@@ -414,6 +414,49 @@ button {
   overflow: auto;
 }
 
+.program-editor {
+  padding: 4px;
+  border-left: 4px solid transparent;
+  border-radius: 6px;
+}
+
+.program-editor--unplaced {
+  border-left-color: #b42318;
+  background: #fff1f1;
+}
+
+.program-placement-error {
+  margin: 6px 4px 2px;
+  color: #8a2020;
+  font-size: 14px;
+}
+
+.program-placement-error strong {
+  display: inline-block;
+  margin-right: 5px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #fff;
+  background: #b42318;
+}
+
+.program-details {
+  margin: 5px 4px 0;
+  color: #3f4550;
+  font-size: 14px;
+}
+
+.program-details summary {
+  width: fit-content;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.program-details p {
+  margin: 6px 0 0;
+  line-height: 1.45;
+}
+
 .layout-notice {
   width: min(1120px, calc(100% - 32px));
   margin: 8px auto 0;

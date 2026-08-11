@@ -5,7 +5,7 @@ import { formatAmount } from "./amount.js";
 import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, EMPTY_CATALOG_PROGRAM, formatCatalogBulletText, parseCatalogText } from "./catalog.js";
 import { runPdfPreflight } from "./pdf-preflight.js";
 import { detectPdfRuntime, PDF_RUNTIME } from "./pdf-runtime.js";
-import { allowedCategoriesForTier, buildRoadmapLayout, moveProgramToTargetLane, ROADMAP_CATEGORIES, resolveRoadmapTier, shiftProgramByMonths } from "./roadmap-policy.js";
+import { allowedCategoriesForTier, buildRoadmapLayout, moveProgramToTargetLane, ROADMAP_CATEGORIES, roadmapProgramLabel, resolveRoadmapTier, shiftProgramByMonths } from "./roadmap-policy.js";
 
 const months = Array.from({ length: 12 }, (_, index) => `${index + 1}월`);
 const categoryLabel = Object.fromEntries(ROADMAP_CATEGORIES.map(({ key, label }) => [key, label]));
@@ -41,6 +41,15 @@ function formatCatalogPeriod(program) {
   const start = String(program.startMonth).padStart(2, "0");
   const end = String(program.endMonth).padStart(2, "0");
   return `${start}월~${end}월`;
+}
+
+function safeExternalUrl(value) {
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch {
+    return "";
+  }
 }
 
 function RoadmapEvent({
@@ -90,7 +99,7 @@ function RoadmapEvent({
         className="roadmap-event__main"
         draggable
         aria-pressed={selected}
-        aria-label={`${item.title}, ${categoryLabel[item.category]}.${unresolved ? " 미해결 피드백 있음." : ""} 드래그로 행 또는 한 달 이동. 화살표 키로도 이동 가능`}
+        aria-label={`${item.title}, ${roadmapProgramLabel(item)}.${unresolved ? " 미해결 피드백 있음." : ""} 드래그로 행 또는 한 달 이동. 화살표 키로도 이동 가능`}
         onPointerDown={(event) => onDragPointerDown(item.id, event.clientX)}
         onDragStart={(event) => {
           suppressClick.current = true;
@@ -107,7 +116,7 @@ function RoadmapEvent({
         }}
       >
         <span className="roadmap-event__copy">
-          <span>{`[${categoryLabel[item.category]}] ${item.title}`}</span>
+          <span>{`[${roadmapProgramLabel(item)}] ${item.title}`}</span>
           {item.amountKrw != null ? <sup>{formatAmount(item.amountKrw)}</sup> : null}
         </span>
         <span className="roadmap-event__bar" />
@@ -249,18 +258,46 @@ function FeedbackPanel({
   );
 }
 
-function ProgramEditor({ program, categories, onChange, onDelete }) {
+function ProgramEditor({ program, categories, placementError, onChange, onDelete }) {
   const number = (value) => value === "" ? "" : Number(value);
+  const selectedCategory = program.category === "business" && program.displayCategory === "marketing" ? "marketing" : program.category;
+  const detailLink = safeExternalUrl(program.link);
+  const hasDetails = Boolean(program.target || program.details || detailLink);
+  const placementErrorId = `program-placement-error-${program.id}`;
   return (
-    <div className="program-row">
-      <select aria-label="구분" value={program.category} onChange={(event) => onChange({ category: event.target.value })}>
-        {categories.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
-      </select>
-      <input aria-label="사업명" value={program.title} onChange={(event) => onChange({ title: event.target.value })} placeholder="사업명" />
-      <input aria-label="시작월" type="number" min="1" max="12" value={program.startMonth} onChange={(event) => onChange({ startMonth: number(event.target.value) })} />
-      <input aria-label="종료월" type="number" min="1" max="12" value={program.endMonth} onChange={(event) => onChange({ endMonth: number(event.target.value) })} />
-      <input aria-label="금액" type="number" min="1" step="1" value={program.amountKrw ?? ""} onChange={(event) => onChange({ amountKrw: event.target.value === "" ? null : Number(event.target.value) })} placeholder="금액(원)" />
-      <button type="button" className="delete-program" onClick={onDelete} aria-label={`${program.title || "새 사업"} 삭제`}>×</button>
+    <div
+      className={`program-editor${placementError ? " program-editor--unplaced" : ""}`}
+      role="group"
+      aria-label={`${program.title || "이름 없는 사업"} 편집`}
+      aria-describedby={placementError ? placementErrorId : undefined}
+      aria-invalid={placementError ? "true" : undefined}
+    >
+      <div className="program-row">
+        <select aria-label="구분" value={selectedCategory} onChange={(event) => {
+          const category = event.target.value;
+          onChange(category === "marketing"
+            ? { category: "business", displayCategory: "marketing" }
+            : { category, displayCategory: undefined });
+        }}>
+          {categories.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
+        </select>
+        <input aria-label="사업명" value={program.title} onChange={(event) => onChange({ title: event.target.value })} placeholder="사업명" />
+        <input aria-label="시작월" type="number" min="1" max="12" value={program.startMonth} onChange={(event) => onChange({ startMonth: number(event.target.value) })} />
+        <input aria-label="종료월" type="number" min="1" max="12" value={program.endMonth} onChange={(event) => onChange({ endMonth: number(event.target.value) })} />
+        <input aria-label="금액" type="number" min="1" step="1" value={program.amountKrw ?? ""} onChange={(event) => onChange({ amountKrw: event.target.value === "" ? null : Number(event.target.value) })} placeholder="금액(원)" />
+        <button type="button" className="delete-program" onClick={onDelete} aria-label={`${program.title || "새 사업"} 삭제`}>×</button>
+      </div>
+      {placementError ? (
+        <p id={placementErrorId} className="program-placement-error" role="alert"><strong>로드맵 미배치</strong> {placementError.message}</p>
+      ) : null}
+      {hasDetails ? (
+        <details className="program-details">
+          <summary>사업 정보 보기</summary>
+          {program.target ? <p className="catalog-row__detail"><strong>지원대상:</strong><span>{formatCatalogBulletText(program.target)}</span></p> : null}
+          {program.details ? <p className="catalog-row__detail"><strong>지원 내용:</strong><span>{formatCatalogBulletText(program.details)}</span></p> : null}
+          {detailLink ? <p className="catalog-row__detail"><strong>공고 링크:</strong><a href={detailLink} target="_blank" rel="noreferrer">공고 링크 열기</a></p> : null}
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -637,6 +674,9 @@ export function App() {
   const documentSignature = useMemo(() => JSON.stringify(document), [document]);
   const documentTier = resolveRoadmapTier(document);
   const allowedCategories = useMemo(() => allowedCategoriesForTier(documentTier), [documentTier]);
+  const editorCategories = useMemo(() => allowedCategories.flatMap((category) => (
+    category.key === "business" ? [category, { key: "marketing", label: "마케팅" }] : [category]
+  )), [allowedCategories]);
   const allowedCategoryKeys = useMemo(() => new Set(allowedCategories.map(({ key }) => key)), [allowedCategories]);
   const firstAllowedCategory = allowedCategories[0].key;
   const catalogCategories = useMemo(
@@ -653,6 +693,9 @@ export function App() {
   const selectedFeedbackProgram = selectedFeedbackProgramId
     ? document.programs.find((program) => program.id === selectedFeedbackProgramId)
     : null;
+  const placementErrorsByProgram = useMemo(() => new Map(layout.errors
+    .filter(({ code, programId }) => code === "E_ROW_CAPACITY" && programId)
+    .map((item) => [item.programId, item])), [layout.errors]);
 
   useEffect(() => {
     if (screen !== "editor") return undefined;
@@ -949,6 +992,7 @@ export function App() {
       if (patch.category && !allowedCategoryKeys.has(patch.category)) return program;
       const next = { ...program, ...patch };
       if (patch.category && patch.category !== program.category) delete next.laneIndex;
+      if (next.category !== "business" || next.displayCategory === undefined) delete next.displayCategory;
       return next;
     }),
   }));
@@ -1517,7 +1561,8 @@ export function App() {
                 <ProgramEditor
                   key={program.id}
                   program={program}
-                  categories={allowedCategories}
+                  categories={editorCategories}
+                  placementError={placementErrorsByProgram.get(program.id)}
                   onChange={(patch) => updateProgram(program.id, patch)}
                   onDelete={() => deleteProgram(program.id)}
                 />

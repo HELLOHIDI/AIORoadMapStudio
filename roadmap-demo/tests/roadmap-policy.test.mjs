@@ -7,6 +7,7 @@ import {
   moveProgramToTargetLane,
   moveProgramToLane,
   ROADMAP_CATEGORIES,
+  roadmapProgramLabel,
   shiftProgramByMonths,
   validateRoadmapDocument,
 } from "../src/roadmap-policy.js";
@@ -37,6 +38,25 @@ test("uses fixed category order and fixed row ceilings", () => {
   assert.deepEqual(ROADMAP_CATEGORIES.map(({ key, maxRows }) => [key, maxRows]), [
     ["consulting", 2], ["business", 4], ["voucher", 2], ["ip", 2], ["certification", 1],
   ]);
+});
+
+test("keeps marketing as a business-lane display label", () => {
+  const business = program("p1", 1, 1, { category: "business", title: "사업화 지원" });
+  const marketing = program("p2", 2, 2, { category: "business", displayCategory: "marketing", title: "홍보 지원" });
+  const layout = buildRoadmapLayout({ clientName: "ANP", programs: [business, marketing] });
+  const section = layout.sections.find(({ key }) => key === "business");
+
+  assert.equal(roadmapProgramLabel(business), "사업화");
+  assert.equal(roadmapProgramLabel(marketing), "마케팅");
+  assert.equal(section.lanes.length, 4);
+  assert.deepEqual(section.lanes.flat().map(({ id }) => id), ["p1", "p2"]);
+  assert.equal(layout.errors.length, 0);
+
+  const invalid = validateRoadmapDocument({
+    clientName: "ANP",
+    programs: [program("p3", 1, 1, { category: "voucher", displayCategory: "marketing" })],
+  });
+  assert.equal(invalid.errors.some(({ code }) => code === "E_DISPLAY_CATEGORY_INVALID"), true);
 });
 
 test("normalizes missing roadmap tier to premium", () => {
@@ -114,6 +134,7 @@ test("blocks instead of creating rows above the category ceiling", () => {
   assert.equal(result.sections[0].lanes.length, 2);
   assert.equal(result.errors.at(-1).code, "E_ROW_CAPACITY");
   assert.equal(result.errors.at(-1).programId, "p3");
+  assert.match(result.errors.at(-1).message, /“p3”.*배치되지 않았습니다/);
 });
 
 test("rejects duplicate ids, unknown categories, missing titles, and invalid sequence", () => {

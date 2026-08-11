@@ -54,6 +54,11 @@ export function allowedCategoriesForTier(tier) {
   return ROADMAP_TIERS[roadmapTierSet.has(tier) ? tier : "premium"].categories;
 }
 
+export function roadmapProgramLabel(program) {
+  if (program?.category === "business" && program.displayCategory === "marketing") return "마케팅";
+  return categoryByKey.get(program?.category)?.label ?? "";
+}
+
 function validateProgram(program, index, seenIds, allowedCategoryKeys) {
   const errors = [];
   const path = `programs[${index}]`;
@@ -69,6 +74,9 @@ function validateProgram(program, index, seenIds, allowedCategoryKeys) {
     errors.push(error("E_CATEGORY_FORBIDDEN_FOR_TIER", `${path}.category`, `${program.title || id || path} is not supported for this roadmap tier.`, id));
   }
   if (!program?.title) errors.push(error("E_TITLE_REQUIRED", `${path}.title`, "사업명이 필요합니다.", id));
+  if (program?.displayCategory !== undefined && (program.category !== "business" || program.displayCategory !== "marketing")) {
+    errors.push(error("E_DISPLAY_CATEGORY_INVALID", `${path}.displayCategory`, "마케팅 표시는 사업화 구분에서만 사용할 수 있습니다.", id));
+  }
 
   const validStart = Number.isInteger(program?.startMonth) && program.startMonth >= 1 && program.startMonth <= 12;
   const validEnd = Number.isInteger(program?.endMonth) && program.endMonth >= 1 && program.endMonth <= 12;
@@ -147,7 +155,7 @@ export function buildRoadmapLayout(input) {
     for (const program of programs.filter((item) => hasValidLaneIndex(item, section))) {
       const lane = section.lanes[program.laneIndex];
       if (lane.some((placed) => overlaps(placed, program))) {
-        errors.push(error("E_ROW_CAPACITY", `programs.${program.id}`, `${section.label}의 최대 행 수를 초과했습니다.`, program.id));
+        errors.push(error("E_ROW_CAPACITY", `programs.${program.id}`, `“${program.title || program.id}”은 ${section.label}의 최대 행 수를 초과해 로드맵에 배치되지 않았습니다.`, program.id));
         continue;
       }
       lane.push(placedProgram(program, program.laneIndex));
@@ -156,7 +164,7 @@ export function buildRoadmapLayout(input) {
     for (const program of programs.filter((item) => !hasValidLaneIndex(item, section))) {
       const rowIndex = section.lanes.findIndex((lane) => lane.every((placed) => !overlaps(placed, program)));
       if (rowIndex === -1) {
-        errors.push(error("E_ROW_CAPACITY", `programs.${program.id}`, `${section.label}의 최대 행 수를 초과했습니다.`, program.id));
+        errors.push(error("E_ROW_CAPACITY", `programs.${program.id}`, `“${program.title || program.id}”은 ${section.label}의 최대 행 수를 초과해 로드맵에 배치되지 않았습니다.`, program.id));
         continue;
       }
       section.lanes[rowIndex].push(placedProgram(program, rowIndex));

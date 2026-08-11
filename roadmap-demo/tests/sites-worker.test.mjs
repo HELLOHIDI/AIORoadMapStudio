@@ -559,6 +559,7 @@ test("persists public roadmap drafts without applying PDF validity rules", async
     programs: [{
       id: "draft-1",
       category: "business",
+      displayCategory: "marketing",
       title: "",
       link: "",
       amountKrw: null,
@@ -585,6 +586,13 @@ test("persists public roadmap drafts without applying PDF validity rules", async
   });
   assert.equal(invalidAmount.status, 400);
 
+  const unsafeLink = await request("/api/roadmaps", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...draft, programs: [{ ...draft.programs[0], link: "javascript:alert(1)" }] }),
+  });
+  assert.equal(unsafeLink.status, 400);
+
   const missingTier = await request("/api/roadmaps", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -598,10 +606,21 @@ test("persists public roadmap drafts without applying PDF validity rules", async
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       ...draft,
-      programs: [{ ...draft.programs[0], id: "cert-1", category: "certification" }],
+      programs: [{ ...draft.programs[0], id: "cert-1", category: "certification", displayCategory: undefined }],
     }),
   });
   assert.equal(standardCertification.status, 400);
+  assert.equal(DB.rows.length, 0);
+
+  const invalidMarketing = await request("/api/roadmaps", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      ...draft,
+      programs: [{ ...draft.programs[0], category: "voucher" }],
+    }),
+  });
+  assert.equal(invalidMarketing.status, 400);
   assert.equal(DB.rows.length, 0);
 
   const premiumCertification = await request("/api/roadmaps", {
@@ -610,7 +629,7 @@ test("persists public roadmap drafts without applying PDF validity rules", async
     body: JSON.stringify({
       ...draft,
       tier: "premium",
-      programs: [{ ...draft.programs[0], id: "cert-1", category: "certification" }],
+      programs: [{ ...draft.programs[0], id: "cert-1", category: "certification", displayCategory: undefined }],
     }),
   });
   assert.equal(premiumCertification.status, 201);

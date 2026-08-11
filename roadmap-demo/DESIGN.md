@@ -3,9 +3,9 @@
 ## Source of truth
 
 - Status: Active
-- Last refreshed: 2026-08-11
+- Last refreshed: 2026-08-12
 - Primary product surfaces: shared saved-roadmap library, desktop roadmap authoring, shared support-program catalog, A4 landscape roadmap preview, PDF print output, and native editable PPTX export
-- Evidence reviewed: `AGENTS.md`, `src/App.jsx`, `src/styles.css`, `src/roadmap-policy.js`, `src/pdf-preflight.js`, `public/assets/anp-consulting-logo.png`, the running 1440x1024 authoring screen, `.omx/specs/deep-interview-business-registration.md`, `.omx/specs/deep-interview-business-subcategories.md`, `.omx/specs/deep-interview-roadmap-saving.md`, `.omx/specs/deep-interview-roadmap-bar-feedback.md`, the user-approved inline-composer/right-inspector mock, `업종별_지역별_개별속성_중복제거.xlsx`
+- Evidence reviewed: `AGENTS.md`, `src/App.jsx`, `src/styles.css`, `src/roadmap-policy.js`, `src/pdf-preflight.js`, `public/assets/anp-consulting-logo.png`, the running 1440x1024 authoring screen, `.omx/specs/deep-interview-business-registration.md`, `.omx/specs/deep-interview-business-subcategories.md`, `.omx/specs/deep-interview-roadmap-saving.md`, `.omx/specs/deep-interview-roadmap-bar-feedback.md`, `.omx/specs/deep-interview-roadmap-details-missing-marketing.md`, the user-approved inline-composer/right-inspector mock, `업종별_지역별_개별속성_중복제거.xlsx`
 - Governance: this file defines product and UI/UX policy. Generated mockups are exploratory until the user explicitly approves one; they do not override this file.
 
 ## Brand
@@ -19,6 +19,7 @@
 - Goals:
   - Let visitors open, create, explicitly save, and permanently delete shared roadmap drafts.
   - Let users reuse a centrally managed catalog of support programs.
+  - Let roadmap authors reopen copied catalog details and identify the exact programs omitted by lane capacity.
   - Make selecting a catalog program faster than retyping a roadmap row.
   - Keep catalog masters independent from client-specific roadmap copies.
   - Keep the existing roadmap validation, preview, and PDF workflow intact while offering a parallel native editable PPTX download.
@@ -30,6 +31,7 @@
   - Site-wide navigation redesign or a new multi-page information architecture.
   - Redesigning the A4 landscape document.
   - Treating exploratory generated images as implementation requirements.
+  - Adding a marketing catalog category, roadmap row/tab/color/capacity, or automatic marketing inference.
   - Autosave, ownership, history, duplication, trash, search, or sorting controls for saved roadmaps.
 - Success signals:
   - Users can find a saved program, add it to the roadmap, and see the independent copy with minimal context switching.
@@ -73,6 +75,7 @@
 - Optimize the repeated job: the saved list is the default; `로드맵에 추가` is the primary catalog action.
 - Scale by disclosure: keep long lists compact and reveal extended descriptions only when needed.
 - Make data boundaries visible: distinguish `사업 카탈로그` masters from `로드맵 사업` copies in labels and feedback.
+- Keep capacity failures actionable: mark the exact authoring row with a light-red tint, strong red left border, visible `로드맵 미배치` label, and named message; never rely on color alone or export the marker.
 - Prefer boring, native interaction patterns: buttons, inputs, lists/tables, row separators, and inline feedback before custom widgets.
 - Tradeoff: MVP public editing favors speed over protection. Do not disguise the absence of authentication as security.
 - Minimize feedback chrome: show a small screen-only feedback affordance on the bar, then reveal only the active thread and its next valid action.
@@ -102,6 +105,8 @@
   - New-business `CatalogForm` is text-first: one agreed-format textarea, inline source-text errors, then searchable multi-select industry and region tags. A missing industry or region can be added as an immediately persisted public option from its picker. It parses only on registration and never shows a parsed-result review or individual creation fields.
   - Existing-business editing retains the current individual editable fields and tag selectors.
   - Business create/edit exposes only the manual `메인패키지` toggle. `경진대회`, `수출`, `마케팅`, and `컨설팅` remain derived, read-only tags shown on catalog rows.
+  - Roadmap program rows expose copied target/details/link through a native read-only disclosure. Directly added programs do not gain detail-entry fields.
+  - The roadmap `구분` control offers `마케팅` as a display-only choice backed by the existing `business` lane. It changes only the bar prefix from `[사업화]` to `[마케팅]`.
   - Inline catalog status feedback with a route back to roadmap editing.
   - `RoadmapFeedbackComposer` anchored beside a selected bar only when that program has no feedback.
   - `RoadmapFeedbackInspector` for an existing thread, with program title, state, flat timeline, team-lead authentication when needed, and current-state actions.
@@ -127,6 +132,7 @@
   - Catalog status updates use an appropriate live region.
   - Edit/delete labels include the program title.
   - Field errors are connected to their controls.
+  - Capacity-dropped rows expose a textual status and named error in addition to their red treatment.
 - Reduced motion and sensory considerations: respect reduced-motion preferences; all state changes remain understandable without animation.
 
 ## Responsive behavior
@@ -153,6 +159,7 @@
 - Unsaved roadmap feedback: explain that the roadmap must be explicitly saved before feedback can be persisted; do not silently autosave.
 - New-business parse errors: keep the source text and tag selections in place, show actionable feedback immediately below the textarea, and do not issue a create request until the source format is valid.
 - New industry/region options: persist when the inline add action succeeds, independently of later business registration. Keep a successful option after registration cancellation or failure; on option failure, preserve the source text and existing selections.
+- Roadmap capacity: derive row status from the current layout result so `로드맵 미배치` clears immediately when the program becomes placeable. Existing PDF/PPTX blocking remains unchanged.
 
 ## Content voice
 
@@ -207,6 +214,7 @@
 - Draft semantics: structural validation and size limits apply at the API boundary, but incomplete titles or invalid PDF periods may still be saved. Existing PDF preflight remains the output gate.
 - Access/concurrency: all visitors can read, update, and permanently delete; last write wins. Show this risk in the library and revisit authentication before production exposure.
 - Save semantics: new roadmaps exist only in memory until the user chooses `로드맵 저장`; no autosave.
+- Roadmap-only marketing semantics: an optional `displayCategory: "marketing"` is valid only when `category` is `business`; missing values default to the existing `사업화` label. The catalog schema and filters remain unchanged.
 
 ## Roadmap feedback data and API policy
 
