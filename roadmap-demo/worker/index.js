@@ -536,10 +536,21 @@ async function listCatalog(request, db) {
     filters.push(`(${predicates.join(" OR ")})`);
   }
   const searchSql = filters.length ? ` WHERE ${filters.join(" AND ")}` : "";
+  const periodOrder = startMonth !== null || endMonth !== null
+    ? `CASE WHEN start_month = ? AND end_month = ? THEN 0
+            WHEN start_month <= ? AND end_month >= ? THEN 1
+            ELSE 2 END,
+         CASE WHEN start_month <= ? AND end_month >= ?
+              THEN (? - start_month) + (end_month - ?)
+              ELSE 999 END,`
+    : "";
+  const periodOrderParams = startMonth !== null || endMonth !== null
+    ? [startMonth ?? 1, endMonth ?? 12, startMonth ?? 1, endMonth ?? 12, startMonth ?? 1, endMonth ?? 12, startMonth ?? 1, endMonth ?? 12]
+    : [];
 
   const [page, count] = await Promise.all([
-    db.prepare(`SELECT ${SELECT_FIELDS} FROM catalog_programs${searchSql} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`)
-      .bind(...searchParams, limit, offset)
+    db.prepare(`SELECT ${SELECT_FIELDS} FROM catalog_programs${searchSql} ORDER BY ${periodOrder} updated_at DESC, id DESC LIMIT ? OFFSET ?`)
+      .bind(...searchParams, ...periodOrderParams, limit, offset)
       .all(),
     db.prepare(`SELECT COUNT(*) AS total FROM catalog_programs${searchSql}`)
       .bind(...searchParams)

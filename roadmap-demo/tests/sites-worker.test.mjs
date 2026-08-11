@@ -120,8 +120,19 @@ function createDatabase() {
               }
               const pageParams = params.slice(params.length - 2);
               const [limit, offset] = pageParams;
+              const rankStart = statement.includes("CASE WHEN start_month = ?") ? params[params.length - 10] : null;
+              const rankEnd = statement.includes("CASE WHEN start_month = ?") ? params[params.length - 9] : null;
               const items = filterRows(statement, params)
-                .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id))
+                .sort((left, right) => {
+                  if (rankStart !== null) {
+                    const rank = (row) => row.startMonth === rankStart && row.endMonth === rankEnd ? 0
+                      : row.startMonth <= rankStart && row.endMonth >= rankEnd ? 1 : 2;
+                    const distance = (row) => rank(row) === 1 ? (rankStart - row.startMonth) + (row.endMonth - rankEnd) : 999;
+                    if (rank(left) !== rank(right)) return rank(left) - rank(right);
+                    if (distance(left) !== distance(right)) return distance(left) - distance(right);
+                  }
+                  return right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id);
+                })
                 .slice(offset, offset + limit);
               return { results: items };
             },
@@ -466,19 +477,19 @@ test("filters catalog by overlapping months before pagination", async () => {
     createdAt: updatedAt, updatedAt,
   });
   DB.rows.push(
-    row("latest", 6, 7, "2026-12-01T00:00:00.000Z"),
-    row("recent", 6, 7, "2026-11-01T00:00:00.000Z"),
-    row("overlaps-june", 5, 6, "2026-01-01T00:00:00.000Z"),
-    row("outside-month", 7, 8, "2026-10-01T00:00:00.000Z"),
+    row("latest", 11, 12, "2026-12-01T00:00:00.000Z"),
+    row("recent", 11, 12, "2026-11-01T00:00:00.000Z"),
+    row("closest-cover", 10, 12, "2026-01-01T00:00:00.000Z"),
+    row("wide-cover", 9, 12, "2026-10-01T00:00:00.000Z"),
   );
   const request = (path) => worker.fetch(new Request(`https://example.test${path}`), { DB });
 
   const allPrograms = await (await request("/api/catalog-programs?category=business&limit=50&offset=0")).json();
-  assert.deepEqual(allPrograms.items.map((item) => item.id), ["latest", "recent", "outside-month", "overlaps-june"]);
+  assert.deepEqual(allPrograms.items.map((item) => item.id), ["latest", "recent", "wide-cover", "closest-cover"]);
 
-  const june = await (await request("/api/catalog-programs?category=business&startMonth=6&endMonth=6&limit=1&offset=0")).json();
-  assert.equal(june.total, 3);
-  assert.deepEqual(june.items.map((item) => item.id), ["latest"]);
+  const novemberToDecember = await (await request("/api/catalog-programs?category=business&startMonth=11&endMonth=12&limit=50&offset=0")).json();
+  assert.equal(novemberToDecember.total, 4);
+  assert.deepEqual(novemberToDecember.items.map((item) => item.id), ["latest", "recent", "closest-cover", "wide-cover"]);
 
   assert.equal((await request("/api/catalog-programs?category=business&startMonth=7&endMonth=6")).status, 400);
 });
