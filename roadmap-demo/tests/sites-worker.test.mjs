@@ -124,7 +124,8 @@ function createDatabase() {
               const pageParams = params.slice(params.length - 2);
               const [limit, offset] = pageParams;
               const items = filterRows(statement, params)
-                .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id))
+                .sort((left, right) => (right.supportYear ?? -Infinity) - (left.supportYear ?? -Infinity)
+                  || right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id))
                 .slice(offset, offset + limit);
               return { results: items };
             },
@@ -460,6 +461,31 @@ test("filters catalog tags with OR within dimensions and AND before pagination",
 
   const tooManyFilters = await request(`/api/catalog-programs?${Array.from({ length: 21 }, (_, index) => `industry=i${index}`).join("&")}`);
   assert.equal(tooManyFilters.status, 400);
+});
+
+test("filters catalog support years and overlapping months before pagination", async () => {
+  const DB = createDatabase();
+  const row = (id, supportYear, startMonth, endMonth, updatedAt) => ({
+    id, category: "business", title: id, link: "https://example.test", amountKrw: 1_000_000,
+    supportYear, startMonth, endMonth, target: id, details: id, industriesJson: "[]", regionsJson: "[]",
+    createdAt: updatedAt, updatedAt,
+  });
+  DB.rows.push(
+    row("legacy", null, 6, 7, "2026-12-01T00:00:00.000Z"),
+    row("year-2025", 2025, 6, 7, "2026-11-01T00:00:00.000Z"),
+    row("year-2026", 2026, 5, 6, "2026-01-01T00:00:00.000Z"),
+    row("outside-month", 2026, 7, 8, "2026-10-01T00:00:00.000Z"),
+  );
+  const request = (path) => worker.fetch(new Request(`https://example.test${path}`), { DB });
+
+  const allYears = await (await request("/api/catalog-programs?category=business&limit=50&offset=0")).json();
+  assert.deepEqual(allYears.items.map((item) => item.id), ["outside-month", "year-2026", "year-2025", "legacy"]);
+
+  const june2026 = await (await request("/api/catalog-programs?category=business&supportYear=2026&startMonth=6&endMonth=6&limit=1&offset=0")).json();
+  assert.equal(june2026.total, 1);
+  assert.deepEqual(june2026.items.map((item) => item.id), ["year-2026"]);
+
+  assert.equal((await request("/api/catalog-programs?category=business&startMonth=7&endMonth=6")).status, 400);
 });
 
 test("derives and filters multiple business subcategories before pagination", async () => {
