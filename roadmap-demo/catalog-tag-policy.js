@@ -202,9 +202,9 @@ export function inferIndustries(record, source = {}) {
     .map(([tag, pattern]) => ({ tag, score: [...text.matchAll(new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`))].length }))
     .filter(({ score }) => score)
     .sort((left, right) => right.score - left.score || left.tag.localeCompare(right.tag, "ko"))
-    .slice(0, 2)
+    .slice(0, 1)
     .map(({ tag }) => tag);
-  return [...selected, ...["금융·비즈니스서비스", "제조·소부장"].filter((tag) => !selected.includes(tag))].slice(0, 2);
+  return selected.length ? selected : ["금융·비즈니스서비스"];
 }
 
 export function inferRegions(record, source = {}) {

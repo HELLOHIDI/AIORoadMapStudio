@@ -5,7 +5,7 @@ import { formatAmount } from "./amount.js";
 import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, EMPTY_CATALOG_PROGRAM, formatCatalogBulletText, parseCatalogText } from "./catalog.js";
 import { runPdfPreflight } from "./pdf-preflight.js";
 import { detectPdfRuntime, PDF_RUNTIME } from "./pdf-runtime.js";
-import { allowedCategoriesForTier, buildRoadmapLayout, moveProgramToLane, ROADMAP_CATEGORIES, resolveRoadmapTier } from "./roadmap-policy.js";
+import { allowedCategoriesForTier, buildRoadmapLayout, moveProgramToTargetLane, ROADMAP_CATEGORIES, resolveRoadmapTier, shiftProgramByMonths } from "./roadmap-policy.js";
 
 const months = Array.from({ length: 12 }, (_, index) => `${index + 1}월`);
 const categoryLabel = Object.fromEntries(ROADMAP_CATEGORIES.map(({ key, label }) => [key, label]));
@@ -52,6 +52,7 @@ function RoadmapEvent({
   onDragStart,
   onDragEnd,
   onMove,
+  onShift,
   onOpen,
   onDraftChange,
   onPasswordChange,
@@ -60,8 +61,12 @@ function RoadmapEvent({
 }) {
   const suppressClick = useRef(false);
   const moveByKeyboard = (event) => {
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
     event.preventDefault();
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      onShift(item.id, event.key === "ArrowLeft" ? -1 : 1);
+      return;
+    }
     onMove(item.id, item.rowIndex + (event.key === "ArrowUp" ? -1 : 1));
   };
   const unresolved = thread && thread.status !== "resolved";
@@ -256,7 +261,7 @@ function FieldError({ errors, name }) {
   return errors?.[name] ? <small className="field-error">{errors[name]}</small> : null;
 }
 
-function TagPicker({ label, options, value = [], onChange, onCreate, collapsible = false }) {
+function TagPicker({ label, options, value = [], onChange, onCreate, collapsible = false, maxSelections }) {
   const [query, setQuery] = useState("");
   const [createState, setCreateState] = useState({ status: "idle", error: "", message: "" });
   const selected = Array.isArray(value) ? value : [];
@@ -265,7 +270,7 @@ function TagPicker({ label, options, value = [], onChange, onCreate, collapsible
   const hasExactMatch = options.includes(normalizedQuery);
   const toggle = (option) => onChange(selected.includes(option)
     ? selected.filter((item) => item !== option)
-    : [...selected, option]);
+    : maxSelections === 1 ? [option] : [...selected, option]);
   const createOption = async () => {
     if (!normalizedQuery || createState.status === "saving") return;
     setCreateState({ status: "saving", error: "", message: "" });
@@ -496,6 +501,7 @@ function CatalogForm({ categories, form, state, options, onChange, onCancel, onC
           value={values.industries}
           onChange={(next) => change("industries", next)}
           onCreate={null}
+          maxSelections={1}
         />
         <TagPicker
           label="지역"
@@ -959,14 +965,28 @@ export function App() {
     programs: current.programs.filter((program) => program.id !== id),
   }));
 
+  const laneDropResult = (programId, targetLaneIndex) => {
+    return moveProgramToTargetLane({ programs: document.programs, programId, targetLaneIndex, tier: documentTier });
+  };
+
   const moveProgram = (programId, targetLaneIndex) => {
-    const result = moveProgramToLane({ programs: document.programs, programId, targetLaneIndex, tier: documentTier });
+    const result = laneDropResult(programId, targetLaneIndex);
     if (!result.ok) {
       setLayoutNotice("해당 행에는 배치할 수 없습니다.");
       return;
     }
     setDocument((current) => ({ ...current, programs: result.programs }));
-    setLayoutNotice(result.outcome === "swapped" ? "겹치는 사업의 행을 교환했습니다." : "사업의 행을 이동했습니다.");
+    setLayoutNotice(result.outcome === "swapped-pair" ? "두 사업과 행을 교환했습니다." : result.outcome === "swapped" ? "겹치는 사업의 행을 교환했습니다." : "사업의 행을 이동했습니다.");
+  };
+
+  const shiftProgram = (programId, deltaMonths) => {
+    const result = shiftProgramByMonths({ programs: document.programs, programId, deltaMonths, tier: documentTier });
+    if (!result.ok) {
+      setLayoutNotice("That month shift is not available.");
+      return;
+    }
+    setDocument((current) => ({ ...current, programs: result.programs }));
+    setLayoutNotice("Program period shifted by one month.");
   };
 
   const startDrag = (event, programId) => {
@@ -1371,7 +1391,7 @@ export function App() {
                             className="roadmap-lane"
                             key={`${section.key}-${laneIndex}`}
                             data-drop-state={draggingProgram?.category === section.key
-                              ? (moveProgramToLane({ programs: document.programs, programId: draggingProgramId, targetLaneIndex: laneIndex, tier: documentTier }).ok ? "valid" : "invalid")
+                              ? (laneDropResult(draggingProgramId, laneIndex).ok ? "valid" : "invalid")
                               : undefined}
                             onDragOver={(event) => {
                               if (draggingProgram?.category === section.key) event.preventDefault();
@@ -1399,6 +1419,7 @@ export function App() {
                                 onDragStart={startDrag}
                                 onDragEnd={endDrag}
                                 onMove={moveProgram}
+                                onShift={shiftProgram}
                                 onOpen={openProgramFeedback}
                                 onDraftChange={setFeedbackDraft}
                                 onPasswordChange={setLeadPassword}

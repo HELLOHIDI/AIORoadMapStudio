@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { inspectRoadmapGeometry, runPdfPreflight } from "../src/pdf-preflight.js";
+import { shiftProgramByMonths } from "../src/roadmap-policy.js";
 
 const sheetRect = { left: 0, right: 297 / 25.4 * 96, top: 0, bottom: 210 / 25.4 * 96 };
 const validDocument = {
@@ -54,6 +55,13 @@ test("passes a valid document in a Chromium browser", async () => {
   const blocked = await runPdfPreflight({ roadmapDocument: validDocument, root: fakeRoot(), navigatorLike: { userAgent: "Firefox/150" } });
   assert.equal(blocked.ok, false);
   assert.ok(blocked.errors.some(({ code }) => code === "E_PDF_RUNTIME"));
+});
+
+test("accepts a valid document after a one-month policy shift", async () => {
+  const shifted = shiftProgramByMonths({ programs: validDocument.programs, programId: "one", deltaMonths: 1 });
+  const result = await runPdfPreflight({ roadmapDocument: { ...validDocument, programs: shifted.programs }, root: fakeRoot(), navigatorLike: supportedNavigator });
+  assert.equal(shifted.ok, true);
+  assert.equal(result.ok, true);
 });
 
 test("blocks Standard certification before PDF output", async () => {

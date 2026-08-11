@@ -212,3 +212,70 @@ export function moveProgramToLane({ programs, programId, targetLaneIndex, tier =
     outcome: "swapped",
   };
 }
+
+function layoutForProgram({ programs, programId, tier }) {
+  const program = programs.find((item) => item.id === programId);
+  const allowedCategoryKeys = new Set(allowedCategoriesForTier(tier).map((category) => category.key));
+  const category = allowedCategoryKeys.has(program?.category) ? categoryByKey.get(program?.category) : undefined;
+  if (!program || !category || !hasValidMonthRange(program)) return {};
+
+  const lanePrograms = programs
+    .filter((item) => item.category === program.category && hasValidMonthRange(item))
+    .map((item) => ({ ...item, title: item.title || "layout" }));
+  const layout = buildRoadmapLayout({ tier, clientName: "layout", programs: lanePrograms });
+  const section = layout.sections.find((item) => item.key === program.category);
+  const current = section?.lanes.flat().find((item) => item.id === programId);
+  return { program, category, layout, section, current };
+}
+
+export function shiftProgramByMonths({ programs, programId, deltaMonths, tier = "premium" }) {
+  if (deltaMonths !== -1 && deltaMonths !== 1) return { ok: false, programs, outcome: "rejected" };
+  const { program, layout, section, current } = layoutForProgram({ programs, programId, tier });
+  if (!program || !layout || !section || !current || layout.errors.length) return { ok: false, programs, outcome: "rejected" };
+
+  const shifted = { ...program, startMonth: program.startMonth + deltaMonths, endMonth: program.endMonth + deltaMonths };
+  if (!hasValidMonthRange(shifted)) return { ok: false, programs, outcome: "rejected" };
+  const sourceRest = section.lanes[current.rowIndex].filter((item) => item.id !== programId);
+  if (sourceRest.some((item) => overlaps(item, shifted))) return { ok: false, programs, outcome: "rejected" };
+
+  return {
+    ok: true,
+    programs: programs.map((item) => item.id === programId ? { ...shifted, laneIndex: current.rowIndex } : item),
+    outcome: "shifted",
+  };
+}
+
+export function exchangeProgramWithLanePair({ programs, programId, targetLaneIndex, tier = "premium" }) {
+  const { program, category, section, current } = layoutForProgram({ programs, programId, tier });
+  if (!program || !category || !section || !current || !Number.isInteger(targetLaneIndex)
+    || targetLaneIndex < 0 || targetLaneIndex >= category.maxRows || targetLaneIndex === current.rowIndex) {
+    return { ok: false, programs, outcome: "rejected" };
+  }
+
+  const pair = section.lanes[targetLaneIndex].filter((item) => item.id !== programId);
+  if (pair.length !== 2 || overlaps(pair[0], pair[1])) return { ok: false, programs, outcome: "rejected" };
+  const sourceRest = section.lanes[current.rowIndex].filter((item) => item.id !== programId);
+  if (sourceRest.some((item) => pair.some((displaced) => overlaps(item, displaced)))) {
+    return { ok: false, programs, outcome: "rejected" };
+  }
+
+  return {
+    ok: true,
+    programs: programs.map((item) => {
+      if (item.id === programId) return { ...item, laneIndex: targetLaneIndex };
+      if (pair.some((displaced) => displaced.id === item.id)) return { ...item, laneIndex: current.rowIndex };
+      return item;
+    }),
+    outcome: "swapped-pair",
+  };
+}
+
+export function moveProgramToTargetLane({ programs, programId, targetLaneIndex, tier = "premium" }) {
+  const { section } = layoutForProgram({ programs, programId, tier });
+  const targetLane = section?.lanes[targetLaneIndex];
+  if (targetLane?.length === 2) {
+    const exchange = exchangeProgramWithLanePair({ programs, programId, targetLaneIndex, tier });
+    if (exchange.ok) return exchange;
+  }
+  return moveProgramToLane({ programs, programId, targetLaneIndex, tier });
+}

@@ -327,6 +327,7 @@ function validateCatalogProgramWithOptions(input, options) {
   }
   if (!value.target || value.target.length > 1000) fields.target = "지원대상은 1~1,000자로 입력해 주세요.";
   if (!value.details || value.details.length > 4000) fields.details = "지원내용은 1~4,000자로 입력해 주세요.";
+  if (value.industries.length !== 1) fields.industries = "업종은 하나만 선택해 주세요.";
   if (typeof value.mainPackage !== "boolean") fields.mainPackage = "메인패키지 지정 여부를 확인해 주세요.";
   if (value.category !== "business" && value.mainPackage) fields.mainPackage = "메인패키지는 사업화 사업에만 지정할 수 있습니다.";
 

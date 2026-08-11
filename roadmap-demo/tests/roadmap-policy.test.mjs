@@ -3,8 +3,11 @@ import test from "node:test";
 import {
   allowedCategoriesForTier,
   buildRoadmapLayout,
+  exchangeProgramWithLanePair,
+  moveProgramToTargetLane,
   moveProgramToLane,
   ROADMAP_CATEGORIES,
+  shiftProgramByMonths,
   validateRoadmapDocument,
 } from "../src/roadmap-policy.js";
 
@@ -195,4 +198,57 @@ test("rejects one-conflict swaps that create a second conflict in the source lan
   const result = moveProgramToLane({ programs, programId: "p1", targetLaneIndex: 1 });
 
   assert.deepEqual(result, { ok: false, programs, outcome: "rejected" });
+});
+
+test("shifts a program one month while preserving its lane and duration", () => {
+  const programs = [program("p1", 3, 4, { laneIndex: 1 }), program("p2", 6, 6, { laneIndex: 1 })];
+  const result = shiftProgramByMonths({ programs, programId: "p1", deltaMonths: -1 });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.outcome, "shifted");
+  assert.deepEqual(result.programs.find((item) => item.id === "p1"), { ...programs[0], startMonth: 2, endMonth: 3, laneIndex: 1 });
+  assert.equal(programs[0].startMonth, 3);
+  const placed = buildRoadmapLayout({ clientName: "ANP", programs: result.programs }).sections[0].lanes[1][0];
+  assert.deepEqual([placed.startOffset, placed.span, placed.rowIndex], [1, 2, 1]);
+});
+
+test("rejects horizontal shifts beyond bounds or into an occupied lane", () => {
+  const boundary = [program("p1", 1, 2, { laneIndex: 0 })];
+  assert.deepEqual(shiftProgramByMonths({ programs: boundary, programId: "p1", deltaMonths: -1 }), { ok: false, programs: boundary, outcome: "rejected" });
+  const collision = [program("p1", 3, 4, { laneIndex: 0 }), program("p2", 2, 2, { laneIndex: 0 })];
+  assert.deepEqual(shiftProgramByMonths({ programs: collision, programId: "p1", deltaMonths: -1 }), { ok: false, programs: collision, outcome: "rejected" });
+  const malformed = [program("p1", 3, 4, { laneIndex: 0 }), program("p2", 4, 4, { laneIndex: 0 })];
+  assert.deepEqual(shiftProgramByMonths({ programs: malformed, programId: "p1", deltaMonths: 1 }), { ok: false, programs: malformed, outcome: "rejected" });
+});
+
+test("exchanges one program with two non-overlapping target-lane occupants", () => {
+  const programs = [
+    program("lower", 3, 4, { laneIndex: 1 }),
+    program("left", 2, 2, { laneIndex: 0 }),
+    program("right", 5, 5, { laneIndex: 0 }),
+  ];
+  const result = exchangeProgramWithLanePair({ programs, programId: "lower", targetLaneIndex: 0 });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.outcome, "swapped-pair");
+  assert.equal(result.programs.find((item) => item.id === "lower").laneIndex, 0);
+  assert.equal(result.programs.find((item) => item.id === "left").laneIndex, 1);
+  assert.equal(result.programs.find((item) => item.id === "right").laneIndex, 1);
+  assert.deepEqual(result.programs.map(({ startMonth, endMonth }) => [startMonth, endMonth]), [[3, 4], [2, 2], [5, 5]]);
+});
+
+test("routes an invalid pair exchange through the existing lane move policy", () => {
+  const programs = [
+    program("lower", 3, 3, { laneIndex: 1 }),
+    program("source-rest", 5, 5, { laneIndex: 1 }),
+    program("conflict", 3, 3, { laneIndex: 0 }),
+    program("other", 5, 5, { laneIndex: 0 }),
+  ];
+  const result = moveProgramToTargetLane({ programs, programId: "lower", targetLaneIndex: 0 });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.outcome, "swapped");
+  assert.equal(result.programs.find((item) => item.id === "lower").laneIndex, 0);
+  assert.equal(result.programs.find((item) => item.id === "conflict").laneIndex, 1);
+  assert.equal(result.programs.find((item) => item.id === "other").laneIndex, 0);
 });

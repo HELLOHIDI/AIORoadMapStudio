@@ -136,14 +136,14 @@ test("keeps the upper-industry tag list compact and unique", () => {
   assert.ok(REGION_OPTIONS.includes("전국"));
 });
 
-test("classifies support programs into two upper-industry tags", () => {
+test("classifies support programs into one upper-industry tag", () => {
   const industries = inferIndustries({
     title: "2026년 AI 영상분석 시스템 사업화 지원",
     target: "정보통신 소프트웨어 중소기업",
     details: "기술 고도화와 마케팅 비용 지원",
     industries: ["기술", "마케팅"],
   });
-  assert.equal(industries.length, 2);
+  assert.equal(industries.length, 1);
   assert.ok(industries.includes("AI·디지털"));
   assert.equal(industries.some((tag) => NON_INDUSTRY_OPTIONS.includes(tag)), false);
 });

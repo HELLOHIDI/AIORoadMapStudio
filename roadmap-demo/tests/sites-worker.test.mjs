@@ -223,7 +223,7 @@ const catalogInput = {
   endMonth: 7,
   target: "해양 분야 스타트업",
   details: "테스트 베드와 후속 투자 검토",
-  industries: ["농림·수산·해양", "유통·소비재"],
+  industries: ["농림·수산·해양"],
   regions: ["서울", "부산"],
   mainPackage: false,
 };
@@ -270,6 +270,14 @@ test("validates and persists catalog CRUD through D1", async () => {
   assert.deepEqual(created.item.industries, catalogInput.industries);
   assert.deepEqual(created.item.regions, catalogInput.regions);
   assert.deepEqual(created.item.businessSubcategories, []);
+  assert.equal(DB.rows.length, 1);
+
+  const multipleIndustries = await request("/api/catalog-programs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...catalogInput, industries: [INDUSTRY_OPTIONS[0], INDUSTRY_OPTIONS[1]] }),
+  });
+  assert.equal(multipleIndustries.status, 400);
   assert.equal(DB.rows.length, 1);
 
   const unknownTag = await request("/api/catalog-programs", {

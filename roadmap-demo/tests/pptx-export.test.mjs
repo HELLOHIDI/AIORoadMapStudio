@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import JSZip from "jszip";
-import { buildRoadmapLayout, ROADMAP_CATEGORIES } from "../src/roadmap-policy.js";
+import { buildRoadmapLayout, ROADMAP_CATEGORIES, shiftProgramByMonths } from "../src/roadmap-policy.js";
 import {
   createRoadmapPresentation,
   exportRoadmapPptx,
@@ -64,6 +64,22 @@ function shapeExtent(xml) {
 function totalLaneCount(layout) {
   return layout.sections.reduce((total, section) => total + section.lanes.length, 0);
 }
+
+test("PPTX bar geometry follows a one-month policy shift", async () => {
+  const roadmap = {
+    clientName: "shift",
+    programs: [{ id: "shift", category: "consulting", title: "shift", startMonth: 3, endMonth: 4, amountKrw: null, sequence: 0, laneIndex: 0 }],
+  };
+  const shifted = shiftProgramByMonths({ programs: roadmap.programs, programId: "shift", deltaMonths: 1 });
+  const before = await buildPackage(roadmap);
+  const after = await buildPackage({ ...roadmap, programs: shifted.programs });
+  const beforeBar = shapeOffset(shapeXmlByName(before.slideXml, "anp.roadmap.program.shift.bar"));
+  const afterBar = shapeOffset(shapeXmlByName(after.slideXml, "anp.roadmap.program.shift.bar"));
+  const timelineWidth = PPTX_LAYOUT.page.widthMm - PPTX_LAYOUT.content.leftMm - PPTX_LAYOUT.content.rightMm - PPTX_LAYOUT.categoryWidthMm;
+
+  assert.equal(afterBar.x - beforeBar.x, Math.round(timelineWidth / 12 * 36000));
+  assert.equal(afterBar.y, beforeBar.y);
+});
 
 test("PPTX 파일명은 안전한 고객명과 pptx 확장자를 사용한다", () => {
   assert.equal(
