@@ -223,7 +223,7 @@ const catalogInput = {
   endMonth: 7,
   target: "해양 분야 스타트업",
   details: "테스트 베드와 후속 투자 검토",
-  industries: ["해양", "해양수산"],
+  industries: ["농림·수산·해양", "유통·소비재"],
   regions: ["서울", "부산"],
   mainPackage: false,
 };
@@ -340,7 +340,7 @@ test("recomputes automatic business tags while preserving manual main package", 
   assert.equal(DB.rows[0].mainPackage, 1);
 });
 
-test("persists catalog options independently and accepts them in catalog writes", async () => {
+test("keeps upper-industry choices fixed while allowing shared region choices", async () => {
   const DB = createDatabase();
   const env = { DB };
   const request = (path, options) => worker.fetch(new Request(`https://example.test${path}`, options), env);
@@ -350,36 +350,7 @@ test("persists catalog options independently and accepts them in catalog writes"
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ kind: "industry", value: "  Space Tech  " }),
   });
-  assert.equal(industryResponse.status, 201);
-  assert.deepEqual(await industryResponse.json(), { item: { kind: "industry", value: "Space Tech" }, created: true });
-
-  const duplicateResponse = await request("/api/catalog-options", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ kind: "industry", value: "Space Tech" }),
-  });
-  assert.equal(duplicateResponse.status, 200);
-  assert.deepEqual(await duplicateResponse.json(), { item: { kind: "industry", value: "Space Tech" }, created: false });
-
-  const seededDuplicateResponse = await request("/api/catalog-options", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ kind: "industry", value: INDUSTRY_OPTIONS[0] }),
-  });
-  assert.equal(seededDuplicateResponse.status, 200);
-  assert.deepEqual(await seededDuplicateResponse.json(), {
-    item: { kind: "industry", value: INDUSTRY_OPTIONS[0] },
-    created: false,
-  });
-  assert.equal(DB.options.length, 1);
-
-  const nonIndustryResponse = await request("/api/catalog-options", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ kind: "industry", value: "마케팅" }),
-  });
-  assert.equal(nonIndustryResponse.status, 400);
-  DB.options.push({ kind: "industry", value: "마케팅", createdAt: new Date().toISOString() });
+  assert.equal(industryResponse.status, 400);
 
   const invalidRegionResponse = await request("/api/catalog-options", {
     method: "POST",
@@ -402,7 +373,7 @@ test("persists catalog options independently and accepts them in catalog writes"
     body: JSON.stringify({ kind: "industry", value: " " }),
   });
   assert.equal(invalidResponse.status, 400);
-  assert.equal(DB.options.length, 4);
+  assert.equal(DB.options.length, 2);
 
   const unknownFieldResponse = await request("/api/catalog-options", {
     method: "POST",
@@ -410,30 +381,29 @@ test("persists catalog options independently and accepts them in catalog writes"
     body: JSON.stringify({ kind: "industry", value: "Valid", extra: true }),
   });
   assert.equal(unknownFieldResponse.status, 400);
-  assert.equal(DB.options.length, 4);
+  assert.equal(DB.options.length, 2);
 
   const optionsResponse = await request("/api/catalog-options");
   const options = await optionsResponse.json();
   assert.equal(options.industries.includes(INDUSTRY_OPTIONS[0]), true);
   assert.equal(options.regions.includes(REGION_OPTIONS[0]), true);
-  assert.equal(options.industries.includes("Space Tech"), true);
+  assert.equal(options.industries.length, INDUSTRY_OPTIONS.length);
   assert.equal(options.regions.includes("Mars Base"), true);
-  assert.equal(options.industries.includes("마케팅"), false);
   assert.equal(options.regions.includes("광주 동"), false);
 
   const failedCatalog = await request("/api/catalog-programs", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ...catalogInput, link: "ftp://example.test", industries: ["Space Tech"], regions: ["Mars Base"] }),
+    body: JSON.stringify({ ...catalogInput, link: "ftp://example.test", regions: ["Mars Base"] }),
   });
   assert.equal(failedCatalog.status, 400);
-  assert.equal(DB.options.length, 4);
+  assert.equal(DB.options.length, 2);
   assert.equal(DB.rows.length, 0);
 
   const createdCatalog = await request("/api/catalog-programs", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ...catalogInput, industries: ["Space Tech"], regions: ["Mars Base"] }),
+    body: JSON.stringify({ ...catalogInput, regions: ["Mars Base"] }),
   });
   assert.equal(createdCatalog.status, 201);
   assert.equal(DB.rows.length, 1);

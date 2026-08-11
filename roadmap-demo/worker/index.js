@@ -25,7 +25,7 @@ const NON_INDUSTRIES = new Set(NON_INDUSTRY_OPTIONS);
 const REGIONS = new Set(REGION_OPTIONS);
 const BUSINESS_SUBCATEGORIES = new Set(BUSINESS_SUBCATEGORY_OPTIONS);
 const INVALID_REGIONS = new Set(LEGACY_INVALID_REGION_OPTIONS);
-const OPTION_KINDS = new Set(["industry", "region"]);
+const OPTION_KINDS = new Set(["region"]);
 const MAX_BODY_BYTES = 500_000;
 const MAX_ROADMAP_PROGRAMS = 500;
 const FEEDBACK_ACTIONS = new Set(["complete", "resolve", "rework"]);
@@ -339,10 +339,7 @@ async function catalogOptionSets(db) {
   const industries = new Set(INDUSTRY_OPTIONS);
   const regions = new Set(REGION_OPTIONS);
   const rows = await db.prepare("SELECT kind, value FROM catalog_options ORDER BY kind, value").bind().all();
-  for (const row of rows.results ?? []) {
-    if (row.kind === "industry" && !NON_INDUSTRIES.has(row.value)) industries.add(row.value);
-    if (row.kind === "region" && !INVALID_REGIONS.has(row.value)) regions.add(row.value);
-  }
+  for (const row of rows.results ?? []) if (row.kind === "region" && !INVALID_REGIONS.has(row.value)) regions.add(row.value);
   return { industries, regions };
 }
 

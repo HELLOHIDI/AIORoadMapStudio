@@ -1,4 +1,4 @@
-import { INDUSTRY_OPTIONS, NON_INDUSTRY_OPTIONS } from "./catalog-options.js";
+import { DETAILED_INDUSTRY_OPTIONS, INDUSTRY_OPTIONS, NON_INDUSTRY_OPTIONS } from "./catalog-options.js";
 
 const nonIndustryTags = new Set(NON_INDUSTRY_OPTIONS);
 const weakIndustryMatchers = new Map([
@@ -130,7 +130,7 @@ function redundantIndustry(left, right) {
   return redundantIndustryGroups.some((group) => group.includes(left) && group.includes(right));
 }
 
-export function inferIndustries(record, source = {}, options = INDUSTRY_OPTIONS) {
+function inferDetailedIndustries(record, source = {}, options = DETAILED_INDUSTRY_OPTIONS) {
   const allowed = new Set(options.filter((tag) => !nonIndustryTags.has(tag)));
   const sources = industrySources(record, source);
   const combined = Object.values(sources).join(" ");
@@ -177,6 +177,34 @@ export function inferIndustries(record, source = {}, options = INDUSTRY_OPTIONS)
     if (selected.length === 2) break;
   }
   return selected;
+}
+
+const TOP_INDUSTRY_GROUPS = Object.freeze([
+  ["AI·디지털", /\bAI\b|인공지능|IT|ICT|SW|소프트웨어|SaaS|데이터|디지털|플랫폼|클라우드|5G|IoT|블록체인|XR|AR|VR|메타버스|보안|양자|스마트시티|에듀테크/iu],
+  ["바이오·헬스케어", /바이오|헬스|의료|제약|의약|병원|치료|웰니스|고령|천연물/iu],
+  ["제조·소부장", /제조|산업재|기계|금속|소재|장비|반도체|전자|부품|세라믹|나노|공장|화학|인쇄|3D\s*프린터|스마트공장/iu],
+  ["모빌리티·로봇", /자동차|미래차|모빌리티|로봇|드론|항공|조선|자율주행|전기차|해운|항만/iu],
+  ["에너지·환경", /에너지|환경|기후|탄소|수소|태양광|원전|배터리|이차전지|재생|리사이클|업사이클|친환경/iu],
+  ["콘텐츠·관광", /콘텐츠|게임|문화|관광|여행|예술|웹툰|출판|스포츠|엔터|공예/iu],
+  ["유통·소비재", /유통|리테일|소비재|식품|농식품|뷰티|화장품|미용|패션|생활|커피|F&B|주얼리|반려동물/iu],
+  ["농림·수산·해양", /농업|농촌|농산|축산|스마트팜|애그테크|임업|산림|수산|어업|해양/iu],
+  ["금융·비즈니스서비스", /금융|핀테크|서비스|지식서비스|컨설팅|마케팅|디자인|무역|수출/iu],
+  ["건설·공간", /건설|건축|공간|도시|부동산|인프라/iu],
+  ["국방·우주", /국방|방위|우주|항공우주/iu],
+  ["교육·사회서비스", /교육|사회복지|돌봄|유아|라이프케어/iu],
+]);
+
+export function inferIndustries(record, source = {}) {
+  const sources = industrySources(record, source);
+  const detailed = inferDetailedIndustries(record, source);
+  const text = `${sources.title} ${sources.field} ${sources.target} ${sources.details} ${(record.industries ?? []).join(" ")} ${detailed.join(" ")}`;
+  const selected = TOP_INDUSTRY_GROUPS
+    .map(([tag, pattern]) => ({ tag, score: [...text.matchAll(new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`))].length }))
+    .filter(({ score }) => score)
+    .sort((left, right) => right.score - left.score || left.tag.localeCompare(right.tag, "ko"))
+    .slice(0, 2)
+    .map(({ tag }) => tag);
+  return [...selected, ...["금융·비즈니스서비스", "제조·소부장"].filter((tag) => !selected.includes(tag))].slice(0, 2);
 }
 
 export function inferRegions(record, source = {}) {

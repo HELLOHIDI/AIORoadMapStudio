@@ -25,9 +25,15 @@ const ALL_INDUSTRY_OPTIONS = Object.freeze([
 ]);
 
 const nonIndustryOptionSet = new Set(NON_INDUSTRY_OPTIONS);
-export const INDUSTRY_OPTIONS = Object.freeze(
+export const DETAILED_INDUSTRY_OPTIONS = Object.freeze(
   ALL_INDUSTRY_OPTIONS.filter((option) => !nonIndustryOptionSet.has(option)),
 );
+
+export const INDUSTRY_OPTIONS = Object.freeze([
+  "AI·디지털", "바이오·헬스케어", "제조·소부장", "모빌리티·로봇",
+  "에너지·환경", "콘텐츠·관광", "유통·소비재", "농림·수산·해양",
+  "금융·비즈니스서비스", "건설·공간", "국방·우주", "교육·사회서비스",
+]);
 
 export const REGION_OPTIONS = Object.freeze([
   "전국", "강원", "경기", "경남", "경북", "광명", "광주", "구리", "구미", "군포", "김해", "남양주", "대구", "대전", "동두천", "부산", "상주", "서울", "세종", "시흥", "안양", "양주", "연천", "영천", "예천", "울산", "원주", "의성", "의정부", "인천", "전남", "전북", "전주", "제주", "종로", "창원", "청송", "춘천", "충남", "충북", "포항", "호남",

@@ -495,7 +495,7 @@ function CatalogForm({ categories, form, state, options, onChange, onCancel, onC
           options={options.industries}
           value={values.industries}
           onChange={(next) => change("industries", next)}
-          onCreate={form.mode === "create" ? (value) => onCreateOption("industry", value) : null}
+          onCreate={null}
         />
         <TagPicker
           label="지역"

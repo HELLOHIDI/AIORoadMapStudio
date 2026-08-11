@@ -126,17 +126,17 @@ test("keeps incomplete source text in the source-correction path", () => {
   ]);
 });
 
-test("keeps the workbook tag lists complete and unique", () => {
-  assert.ok(INDUSTRY_OPTIONS.length > 150);
+test("keeps the upper-industry tag list compact and unique", () => {
+  assert.equal(INDUSTRY_OPTIONS.length, 12);
   assert.equal(new Set(INDUSTRY_OPTIONS).size, INDUSTRY_OPTIONS.length);
-  assert.ok(INDUSTRY_OPTIONS.includes("해양수산"));
+  assert.ok(INDUSTRY_OPTIONS.includes("농림·수산·해양"));
   for (const tag of NON_INDUSTRY_OPTIONS) assert.equal(INDUSTRY_OPTIONS.includes(tag), false);
   assert.equal(REGION_OPTIONS.length, 42);
   assert.equal(new Set(REGION_OPTIONS).size, 42);
   assert.ok(REGION_OPTIONS.includes("전국"));
 });
 
-test("replaces non-industry labels with two industry tags", () => {
+test("classifies support programs into two upper-industry tags", () => {
   const industries = inferIndustries({
     title: "2026년 AI 영상분석 시스템 사업화 지원",
     target: "정보통신 소프트웨어 중소기업",
@@ -144,7 +144,7 @@ test("replaces non-industry labels with two industry tags", () => {
     industries: ["기술", "마케팅"],
   });
   assert.equal(industries.length, 2);
-  assert.ok(industries.includes("AI"));
+  assert.ok(industries.includes("AI·디지털"));
   assert.equal(industries.some((tag) => NON_INDUSTRY_OPTIONS.includes(tag)), false);
 });
 
