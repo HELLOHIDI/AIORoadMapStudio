@@ -1,3 +1,6 @@
 {
-  "private": true
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix roadmap-demo ci && npm --prefix roadmap-demo run build"
+  }
 }
