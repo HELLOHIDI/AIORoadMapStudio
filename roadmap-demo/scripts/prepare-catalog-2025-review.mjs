@@ -71,7 +71,7 @@ function sourceToPayload(row) {
   const parsedAmount = String(amount).trim() ? Number(amount) : null;
   if (parsedAmount !== null && (!Number.isSafeInteger(parsedAmount) || parsedAmount <= 0)) return { skip: "invalid-amount", raw: String(amount) };
   if (!title || !link || !target || !details || title.length > 240 || link.length > 2048 || target.length > 1000 || details.length > 4000) return { skip: "invalid-required-field" };
-  const record = { category, title: title.trim(), link: link.trim(), amountKrw: parsedAmount, supportYear: Number(startYear), startMonth: Number(startMonth), endMonth: Number(endMonth), target: target.trim(), details: details.trim(), industries: industryText.split(",").map((tag) => tag.trim()).filter(Boolean), regions: regionText.split(",").map((tag) => tag.trim()).filter(Boolean), mainPackage: false };
+  const record = { category, title: title.trim(), link: link.trim(), amountKrw: parsedAmount, startMonth: Number(startMonth), endMonth: Number(endMonth), target: target.trim(), details: details.trim(), industries: industryText.split(",").map((tag) => tag.trim()).filter(Boolean), regions: regionText.split(",").map((tag) => tag.trim()).filter(Boolean), mainPackage: false };
   return { value: { ...record, industries: inferIndustries(record), regions: inferRegions(record) } };
 }
 

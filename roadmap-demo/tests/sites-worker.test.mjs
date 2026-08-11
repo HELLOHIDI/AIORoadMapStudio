@@ -80,8 +80,6 @@ function createDatabase() {
     if (hasSearch) index += 2;
     const hasCategory = statement.includes("category = ?");
     const category = hasCategory ? params[index++] : "";
-    const hasSupportYear = statement.includes("support_year = ?");
-    const supportYear = hasSupportYear ? params[index++] : null;
     const hasMonthRange = statement.includes("start_month <= ? AND end_month >= ?");
     const endMonth = hasMonthRange ? params[index++] : null;
     const startMonth = hasMonthRange ? params[index++] : null;
@@ -98,7 +96,6 @@ function createDatabase() {
       .filter((row) => !query || [row.title, row.target, row.details]
         .some((value) => value.toLowerCase().includes(query)))
       .filter((row) => !category || row.category === category)
-      .filter((row) => supportYear === null || row.supportYear === supportYear)
       .filter((row) => !hasMonthRange || (row.startMonth <= endMonth && row.endMonth >= startMonth))
       .filter((row) => !industries.length || JSON.parse(row.industriesJson).some((value) => industries.includes(value)))
       .filter((row) => !regions.length || JSON.parse(row.regionsJson).some((value) => regions.includes(value)))
@@ -124,8 +121,7 @@ function createDatabase() {
               const pageParams = params.slice(params.length - 2);
               const [limit, offset] = pageParams;
               const items = filterRows(statement, params)
-                .sort((left, right) => (right.supportYear ?? -Infinity) - (left.supportYear ?? -Infinity)
-                  || right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id))
+                .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id))
                 .slice(offset, offset + limit);
               return { results: items };
             },
@@ -142,15 +138,15 @@ function createDatabase() {
                 return { meta: { changes: 1 } };
               }
               if (statement.startsWith("INSERT")) {
-                const [id, category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, supportYear, createdAt, updatedAt] = params;
-                rows.push({ id, category, title, link, amountKrw, supportYear, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, createdAt, updatedAt });
+                const [id, category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, createdAt, updatedAt] = params;
+                rows.push({ id, category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, createdAt, updatedAt });
                 return { meta: { changes: 1 } };
               }
               if (statement.startsWith("UPDATE")) {
-                const [category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, supportYear, updatedAt, id] = params;
+                const [category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, updatedAt, id] = params;
                 const row = rows.find((item) => item.id === id);
                 if (!row) return { meta: { changes: 0 } };
-                Object.assign(row, { category, title, link, amountKrw, supportYear, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, updatedAt });
+                Object.assign(row, { category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, updatedAt });
                 return { meta: { changes: 1 } };
               }
               if (statement.startsWith("DELETE")) {
@@ -227,7 +223,6 @@ const catalogInput = {
   title: "2026년 해양수산 오픈이노베이션 사업",
   link: "https://scceioi.kr/2026/kimst/index.php#mEnter",
   amountKrw: 30_000_000,
-  supportYear: 2026,
   startMonth: 6,
   endMonth: 7,
   target: "해양 분야 스타트업",
@@ -463,27 +458,27 @@ test("filters catalog tags with OR within dimensions and AND before pagination",
   assert.equal(tooManyFilters.status, 400);
 });
 
-test("filters catalog support years and overlapping months before pagination", async () => {
+test("filters catalog by overlapping months before pagination", async () => {
   const DB = createDatabase();
-  const row = (id, supportYear, startMonth, endMonth, updatedAt) => ({
+  const row = (id, startMonth, endMonth, updatedAt) => ({
     id, category: "business", title: id, link: "https://example.test", amountKrw: 1_000_000,
-    supportYear, startMonth, endMonth, target: id, details: id, industriesJson: "[]", regionsJson: "[]",
+    startMonth, endMonth, target: id, details: id, industriesJson: "[]", regionsJson: "[]",
     createdAt: updatedAt, updatedAt,
   });
   DB.rows.push(
-    row("legacy", null, 6, 7, "2026-12-01T00:00:00.000Z"),
-    row("year-2025", 2025, 6, 7, "2026-11-01T00:00:00.000Z"),
-    row("year-2026", 2026, 5, 6, "2026-01-01T00:00:00.000Z"),
-    row("outside-month", 2026, 7, 8, "2026-10-01T00:00:00.000Z"),
+    row("latest", 6, 7, "2026-12-01T00:00:00.000Z"),
+    row("recent", 6, 7, "2026-11-01T00:00:00.000Z"),
+    row("overlaps-june", 5, 6, "2026-01-01T00:00:00.000Z"),
+    row("outside-month", 7, 8, "2026-10-01T00:00:00.000Z"),
   );
   const request = (path) => worker.fetch(new Request(`https://example.test${path}`), { DB });
 
-  const allYears = await (await request("/api/catalog-programs?category=business&limit=50&offset=0")).json();
-  assert.deepEqual(allYears.items.map((item) => item.id), ["outside-month", "year-2026", "year-2025", "legacy"]);
+  const allPrograms = await (await request("/api/catalog-programs?category=business&limit=50&offset=0")).json();
+  assert.deepEqual(allPrograms.items.map((item) => item.id), ["latest", "recent", "outside-month", "overlaps-june"]);
 
-  const june2026 = await (await request("/api/catalog-programs?category=business&supportYear=2026&startMonth=6&endMonth=6&limit=1&offset=0")).json();
-  assert.equal(june2026.total, 1);
-  assert.deepEqual(june2026.items.map((item) => item.id), ["year-2026"]);
+  const june = await (await request("/api/catalog-programs?category=business&startMonth=6&endMonth=6&limit=1&offset=0")).json();
+  assert.equal(june.total, 3);
+  assert.deepEqual(june.items.map((item) => item.id), ["latest"]);
 
   assert.equal((await request("/api/catalog-programs?category=business&startMonth=7&endMonth=6")).status, 400);
 });
