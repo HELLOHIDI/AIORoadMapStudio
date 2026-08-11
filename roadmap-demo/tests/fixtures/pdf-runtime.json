@@ -1,8 +1,6 @@
 {
   "family": "Chromium",
   "product": "Google Chrome",
-  "major": 150,
-  "version": "150.0.7871.187",
   "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "profile": {
     "paper": "A4",

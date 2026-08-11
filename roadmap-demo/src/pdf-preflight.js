@@ -10,7 +10,7 @@ const FONT_CHECKS = Object.freeze([
 ]);
 
 const messages = {
-  E_PDF_RUNTIME: `PDF 출력은 관리형 Chromium ${PDF_RUNTIME.major}에서만 허용됩니다.`,
+  E_PDF_RUNTIME: "PDF 출력은 Chromium 기반 브라우저에서만 지원됩니다.",
   E_FONT_NOT_READY: "PDF에 필요한 폰트를 불러오지 못했습니다.",
   E_ASSET_MISSING: "ANP 로고를 불러오지 못했습니다.",
   E_LABEL_OVERFLOW: "라벨 또는 막대가 A4 시트 경계를 벗어났습니다.",

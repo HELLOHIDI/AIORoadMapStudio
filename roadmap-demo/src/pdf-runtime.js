@@ -1,6 +1,5 @@
 export const PDF_RUNTIME = Object.freeze({
   family: "Chromium",
-  major: 150,
   profile: Object.freeze({
     paper: "A4",
     orientation: "landscape",
@@ -24,6 +23,6 @@ export function checkPdfRuntime(navigatorLike, contract = PDF_RUNTIME) {
   const runtime = detectPdfRuntime(navigatorLike);
   return {
     runtime,
-    supported: runtime.family === contract.family && runtime.major === contract.major,
+    supported: runtime.family === contract.family,
   };
 }

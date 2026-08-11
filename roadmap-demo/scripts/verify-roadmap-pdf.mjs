@@ -83,16 +83,12 @@ async function connectCdp(webSocketUrl, onEvent) {
   };
 }
 
-if (fixture.family !== PDF_RUNTIME.family || fixture.major !== PDF_RUNTIME.major
-  || JSON.stringify(fixture.profile) !== JSON.stringify(PDF_RUNTIME.profile)) {
+if (fixture.family !== PDF_RUNTIME.family || JSON.stringify(fixture.profile) !== JSON.stringify(PDF_RUNTIME.profile)) {
   throw new Error("PDF runtime fixture and src/pdf-runtime.js do not match");
 }
 if (!existsSync(fixture.executable)) throw new Error(`Managed Chrome not found: ${fixture.executable}`);
 const escapedChrome = fixture.executable.replaceAll("'", "''");
 const installedVersion = run("powershell.exe", ["-NoProfile", "-Command", `(Get-Item -LiteralPath '${escapedChrome}').VersionInfo.ProductVersion`]).trim();
-if (Number(installedVersion.split(".")[0]) !== fixture.major) {
-  throw new Error(`Managed Chrome ${installedVersion} does not match required major ${fixture.major}`);
-}
 const response = await fetch(url);
 if (!response.ok) throw new Error(`Roadmap URL returned ${response.status}: ${url}`);
 if (!resolve(profileDir).startsWith(`${resolve(tmpdir())}${sep}`)) throw new Error("Unsafe PDF harness profile path");
@@ -141,7 +137,7 @@ try {
   await cdp.send("Log.enable");
   await cdp.send("Page.enable");
   const version = await cdp.send("Browser.getVersion");
-  if (!version.product?.startsWith(`Chrome/${fixture.major}.`)) throw new Error(`Unexpected CDP runtime: ${version.product}`);
+  if (!version.product?.startsWith("Chrome/")) throw new Error(`Unexpected CDP runtime: ${version.product}`);
   await cdp.send("Page.navigate", { url });
 
   const editorStarted = Date.now();
@@ -283,7 +279,7 @@ const report = {
   result: "passed",
   tier,
   url,
-  runtime: { family: fixture.family, product: fixture.product, version: installedVersion, major: fixture.major },
+  runtime: { family: fixture.family, product: fixture.product, version: installedVersion },
   profile: fixture.profile,
   preflight: { status, errors: [], browserLogs },
   pdf: { path: pdfPath, pages: pdf.pages, widthPt: pdf.width, heightPt: pdf.height, embeddedFonts: fonts },

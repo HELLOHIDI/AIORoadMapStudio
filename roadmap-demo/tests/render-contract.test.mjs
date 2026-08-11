@@ -41,11 +41,10 @@ test("keeps native PPTX geometry synchronized with the approved PDF sheet", () =
   assert.match(styles, /\.sheet-footer\s*\{[^}]*height:\s*16\.7mm;/s);
 });
 
-test("keeps fixed copy and the managed PDF runtime synchronized", () => {
+test("keeps fixed copy and the Chromium PDF profile synchronized", () => {
   assert.ok(app.includes("올인원 컨설팅 서비스 연간 로드맵_"));
   assert.ok(app.includes("주식회사 ANP컨설팅"));
   assert.equal(fixture.family, PDF_RUNTIME.family);
-  assert.equal(fixture.major, PDF_RUNTIME.major);
   assert.deepEqual(fixture.profile, PDF_RUNTIME.profile);
 });
 

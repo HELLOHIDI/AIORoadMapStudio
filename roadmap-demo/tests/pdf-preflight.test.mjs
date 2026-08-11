@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { inspectRoadmapGeometry, runPdfPreflight } from "../src/pdf-preflight.js";
-import { PDF_RUNTIME } from "../src/pdf-runtime.js";
 
 const sheetRect = { left: 0, right: 297 / 25.4 * 96, top: 0, bottom: 210 / 25.4 * 96 };
 const validDocument = {
@@ -37,9 +36,9 @@ function fakeRoot({ fontReady = true, logoReady = true, labelRect } = {}) {
   };
 }
 
-const supportedNavigator = { userAgent: `Mozilla/5.0 Chrome/${PDF_RUNTIME.major}.0.0.0 Safari/537.36` };
+const supportedNavigator = { userAgent: "Mozilla/5.0 Chrome/151.0.0.0 Safari/537.36" };
 
-test("passes a valid document only in the pinned PDF runtime", async () => {
+test("passes a valid document in a Chromium browser", async () => {
   const result = await runPdfPreflight({ roadmapDocument: validDocument, root: fakeRoot(), navigatorLike: supportedNavigator });
   assert.equal(result.ok, true);
   assert.deepEqual(result.errors, []);

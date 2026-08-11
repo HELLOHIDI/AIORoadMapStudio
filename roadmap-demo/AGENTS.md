@@ -49,7 +49,7 @@ Build app UI in `src/`. Preserve the Sites packaging and static-fallback contrac
 - Category colors are fixed: `#BFBFBF`, `#5B9BD5`, `#FFC000`, `#F86828`, `#70AD47`.
 - Do not draw internal horizontal or vertical boundaries across the 1-12 month roadmap body.
 - Footer copy is fixed: `주식회사 ANP컨설팅  |  서울시 강서구 공항대로45길75,제일빌딩 6층  |  E. advisor@anpc.co.kr`, NanumSquare AC Regular 7pt.
-- Managed output runtime: Google Chrome/Chromium major 150 with A4, landscape, 100% scale, no margins, background graphics on, and headers/footers off.
+- PDF output supports Chromium-based browsers, including ordinary Google Chrome. Keep A4, landscape, 100% scale, no margins, background graphics on, and headers/footers off.
 - Any data, runtime, font, logo, collision, label-overflow, or page-overflow error blocks PDF output. Keep the policy and QA evidence in `src/pdf-runtime.js`, `tests/fixtures/pdf-runtime.json`, and `design-qa.md` synchronized.
 
 ## Native editable PPTX export contract

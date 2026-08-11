@@ -1339,7 +1339,7 @@ export function App() {
       {mode === "roadmap" ? (
         <>
           <p className="print-profile no-print">
-            현재 {currentRuntime.family} {currentRuntime.major ?? "미확인"} · 출력 기준: Chromium {PDF_RUNTIME.major} · A4 가로 · 100% · 여백 없음 · 배경 그래픽 켬 · 머리글/바닥글 끔
+            현재 {currentRuntime.family} {currentRuntime.major ?? "미확인"} · 출력 기준: Chromium 기반 브라우저 · A4 가로 · 100% · 여백 없음 · 배경 그래픽 켬 · 머리글/바닥글 끔
           </p>
           {pptxState.error ? <p className="pptx-export-status pptx-export-status--error no-print" role="alert">{pptxState.error}</p>
             : pptxState.message ? <p className="pptx-export-status no-print" role="status">{pptxState.message}</p> : null}
