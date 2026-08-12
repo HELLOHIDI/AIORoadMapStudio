@@ -131,6 +131,17 @@ test("keeps creation text-first while leaving catalog editing field-based", () =
   assert.match(app, /if \(!editing\) \{\s*setCatalogSearch\(""\);\s*setCatalogQuery\(""\);\s*setCatalogOffset\(0\);\s*\}/);
 });
 
+test("keeps annual catalog verification informational and out of roadmap exports", () => {
+  assert.ok(app.includes('fetch(`/api/catalog-programs/${encodeURIComponent(program.id)}`'));
+  assert.ok(app.includes('body: JSON.stringify({ verified })'));
+  assert.ok(app.includes('aria-pressed={verifiedThisYear}'));
+  assert.ok(app.includes('program.verifiedYear === catalog.currentYear'));
+  assert.ok(app.includes('verifiedThisYear ? "올해 확인 취소" : "올해 확인"'));
+  assert.ok(app.includes("✓ 올해 확인 완료"));
+  assert.match(app, /className="catalog-panel no-print"/);
+  assert.doesNotMatch(pptxExport, /verifiedYear|올해 확인 완료/);
+});
+
 test("keeps shared tag creation and catalog filters wired to the server", () => {
   assert.ok(app.includes('fetch("/api/catalog-options"'));
   assert.ok(app.includes('params.append("industry", value)'));

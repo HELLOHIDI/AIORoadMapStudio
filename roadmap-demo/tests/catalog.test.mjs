@@ -223,6 +223,7 @@ test("classifies safe rewrites and ambiguous prose conservatively", () => {
 test("copies a catalog master into an independent roadmap program", () => {
   const master = {
     id: "master-1",
+    verifiedYear: 2026,
     category: "business",
     title: "원본 사업",
     link: "https://example.test",
@@ -238,6 +239,7 @@ test("copies a catalog master into an independent roadmap program", () => {
   assert.notEqual(copy.id, master.id);
   assert.equal(copy.sequence, 4);
   assert.equal("supportYear" in copy, false);
+  assert.equal("verifiedYear" in copy, false);
   copy.title = "클라이언트용 수정";
   assert.equal(master.title, "원본 사업");
 });

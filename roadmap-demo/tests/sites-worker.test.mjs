@@ -151,6 +151,13 @@ function createDatabase() {
                 rows.push({ id, category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, createdAt, updatedAt });
                 return { meta: { changes: 1 } };
               }
+              if (statement.startsWith("UPDATE catalog_programs SET verified_year")) {
+                const [verifiedYear, id] = params;
+                const row = rows.find((item) => item.id === id);
+                if (!row) return { meta: { changes: 0 } };
+                row.verifiedYear = verifiedYear;
+                return { meta: { changes: 1 } };
+              }
               if (statement.startsWith("UPDATE")) {
                 const [category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, updatedAt, id] = params;
                 const row = rows.find((item) => item.id === id);
@@ -549,6 +556,58 @@ test("filters catalog by overlapping months before pagination", async () => {
   assert.equal((await request("/api/catalog-programs?category=business&startMonth=7&endMonth=6")).status, 400);
 });
 
+test("manually verifies catalog programs for the current Korea year", async () => {
+  const DB = createDatabase();
+  const updatedAt = "2026-01-01T00:00:00.000Z";
+  DB.rows.push({
+    id: "verify-me", category: "business", title: "Verify me", link: "https://example.test",
+    amountKrw: 1_000_000, startMonth: 1, endMonth: 12, target: "target", details: "details",
+    industriesJson: "[]", regionsJson: "[]", mainPackage: 0, verifiedYear: null,
+    createdAt: updatedAt, updatedAt,
+  });
+  const request = (options = {}) => worker.fetch(new Request("https://example.test/api/catalog-programs/verify-me", options), { DB });
+
+  assert.equal((await request({ method: "PATCH", body: JSON.stringify({ verified: true }) })).status, 415);
+  assert.equal((await request({
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ verifiedYear: 2099 }),
+  })).status, 400);
+
+  const verifiedResponse = await request({
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ verified: true }),
+  });
+  const verified = await verifiedResponse.json();
+  const koreaYear = Number(new Intl.DateTimeFormat("en", { timeZone: "Asia/Seoul", year: "numeric" }).format(new Date()));
+  assert.equal(verifiedResponse.status, 200);
+  assert.equal(verified.currentYear, koreaYear);
+  assert.equal(verified.item.verifiedYear, koreaYear);
+  assert.equal(DB.rows[0].verifiedYear, koreaYear);
+  assert.equal(DB.rows[0].updatedAt, updatedAt);
+
+  const list = await (await worker.fetch(new Request("https://example.test/api/catalog-programs"), { DB })).json();
+  assert.equal(list.currentYear, koreaYear);
+  assert.equal(list.items[0].verifiedYear, koreaYear);
+
+  const clearedResponse = await request({
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ verified: false }),
+  });
+  assert.equal(clearedResponse.status, 200);
+  assert.equal((await clearedResponse.json()).item.verifiedYear, null);
+  assert.equal(DB.rows[0].verifiedYear, null);
+
+  const missingResponse = await worker.fetch(new Request("https://example.test/api/catalog-programs/missing", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ verified: true }),
+  }), { DB });
+  assert.equal(missingResponse.status, 404);
+});
+
 test("derives and filters multiple business subcategories before pagination", async () => {
   const DB = createDatabase();
   const row = (id, title, details, regions, mainPackage, updatedAt) => ({
@@ -807,6 +866,7 @@ test("emits the files required by Sites packaging", async () => {
   await access(new URL("../dist/.openai/drizzle/0002_catalog_options.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0006_catalog_business_subcategories.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0008_catalog_funding_exclusions.sql", import.meta.url));
+  await access(new URL("../dist/.openai/drizzle/0009_catalog_verified_year.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/meta/_journal.json", import.meta.url));
   const migration = await readFile(new URL("../drizzle/0003_saved_roadmaps_tier.sql", import.meta.url), "utf8");
   assert.match(migration, /ADD COLUMN tier TEXT NOT NULL DEFAULT 'premium'/);
@@ -815,6 +875,7 @@ test("emits the files required by Sites packaging", async () => {
   assert.equal(journal.entries.filter((entry) => entry.tag === "0003_saved_roadmaps_tier").length, 1);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0006_catalog_business_subcategories").length, 1);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0008_catalog_funding_exclusions").length, 1);
+  assert.equal(journal.entries.filter((entry) => entry.tag === "0009_catalog_verified_year").length, 1);
   const server = await readFile(new URL("../dist/server/index.js", import.meta.url), "utf8");
   assert.deepEqual(server.match(/^export /gm), ["export "]);
 });

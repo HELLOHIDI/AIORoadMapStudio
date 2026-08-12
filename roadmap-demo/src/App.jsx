@@ -650,7 +650,7 @@ export function App() {
   const [pdfState, setPdfState] = useState({ status: "editing", errors: [] });
   const [pptxState, setPptxState] = useState(EMPTY_PPTX_STATE);
   const [mode, setMode] = useState("roadmap");
-  const [catalog, setCatalog] = useState({ status: "idle", items: [], total: 0, limit: 50, offset: 0, error: "" });
+  const [catalog, setCatalog] = useState({ status: "idle", items: [], total: 0, limit: 50, offset: 0, currentYear: null, error: "" });
   const [catalogSearch, setCatalogSearch] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogCategory, setCatalogCategory] = useState(CATALOG_CATEGORIES[0].key);
@@ -671,6 +671,7 @@ export function App() {
   const [catalogMutation, setCatalogMutation] = useState({ status: "idle", error: "", fields: {} });
   const [catalogNotice, setCatalogNotice] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [verifyingId, setVerifyingId] = useState(null);
   const [activeCategory, setActiveCategory] = useState(ROADMAP_CATEGORIES[0].key);
   const [draggingProgramId, setDraggingProgramId] = useState(null);
   const dragProgramId = useRef(null);
@@ -803,7 +804,7 @@ export function App() {
         if (!response.ok) throw new Error(data.error || "사업 목록을 불러오지 못했습니다.");
         return data;
       })
-      .then((data) => setCatalog({ status: "ready", items: data.items, total: data.total, limit: data.limit, offset: data.offset, error: "" }))
+      .then((data) => setCatalog({ status: "ready", items: data.items, total: data.total, limit: data.limit, offset: data.offset, currentYear: data.currentYear, error: "" }))
       .catch((error) => {
         if (error.name !== "AbortError") setCatalog((current) => ({ ...current, status: "error", error: error.message }));
       });
@@ -1296,6 +1297,29 @@ export function App() {
     }
   };
 
+  const setCatalogVerified = async (program, verified) => {
+    setVerifyingId(program.id);
+    setCatalogNotice(null);
+    try {
+      const response = await fetch(`/api/catalog-programs/${encodeURIComponent(program.id)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ verified }),
+      });
+      const data = await readApiJson(response);
+      if (!response.ok) throw new Error(data.error || "확인 상태를 저장하지 못했습니다.");
+      setCatalog((current) => ({
+        ...current,
+        currentYear: data.currentYear,
+        items: current.items.map((item) => item.id === program.id ? { ...item, verifiedYear: data.item.verifiedYear } : item),
+      }));
+    } catch (error) {
+      setCatalogNotice({ tone: "error", message: error.message || "확인 상태를 저장하지 못했습니다." });
+    } finally {
+      setVerifyingId(null);
+    }
+  };
+
   const handlePrint = async () => {
     if (pdfState.status !== "ready") return;
     await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -1748,8 +1772,9 @@ export function App() {
                     <span>{hasCatalogFilters ? "검색어나 세부 분류·업종·지역 조건을 바꿔 주세요." : "새 사업 등록으로 첫 사업을 저장해 주세요."}</span>
                   </div>
                 ) : null}
-                {catalog.items.map((program) => (
-                  <article className="catalog-row" key={program.id}>
+                {catalog.items.map((program) => {
+                  const verifiedThisYear = program.verifiedYear === catalog.currentYear;
+                  return <article className="catalog-row" key={program.id}>
                     <div className="catalog-row__main">
                       <div className="catalog-row__title">
                         <span>{categoryLabel[program.category]}</span>
@@ -1771,13 +1796,23 @@ export function App() {
                     </div>
                     <div className="catalog-row__actions">
                       <button type="button" className="button-primary" onClick={() => addCatalogProgram(program)}>로드맵에 추가</button>
+                      <button
+                        type="button"
+                        className="button-tertiary"
+                        aria-pressed={verifiedThisYear}
+                        aria-label={`${program.title} ${verifiedThisYear ? "올해 확인 취소" : "올해 확인"}`}
+                        disabled={verifyingId === program.id}
+                        onClick={() => setCatalogVerified(program, !verifiedThisYear)}
+                      >
+                        {verifyingId === program.id ? "저장 중" : verifiedThisYear ? "✓ 올해 확인 완료" : "올해 확인"}
+                      </button>
                       <button type="button" className="button-tertiary" onClick={() => openCatalogForm(program)} aria-label={`${program.title} 편집`}>편집</button>
                       <button type="button" className="button-danger" onClick={() => deleteCatalogProgram(program)} disabled={deletingId === program.id} aria-label={`${program.title} 삭제`}>
                         {deletingId === program.id ? "삭제 중" : "삭제"}
                       </button>
                     </div>
-                  </article>
-                ))}
+                  </article>;
+                })}
               </div>
 
               {catalog.items.length ? (
