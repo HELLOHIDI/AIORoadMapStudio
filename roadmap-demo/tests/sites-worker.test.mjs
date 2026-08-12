@@ -80,6 +80,9 @@ function createDatabase() {
     if (hasSearch) index += 2;
     const hasCategory = statement.includes("category = ?");
     const category = hasCategory ? params[index++] : "";
+    const hasMonthRange = statement.includes("start_month <= ? AND end_month >= ?");
+    const endMonth = hasMonthRange ? params[index++] : null;
+    const startMonth = hasMonthRange ? params[index++] : null;
     const hasIndustries = statement.includes("json_each(industries_json)");
     const industryCount = hasIndustries ? (statement.match(/json_each\(industries_json\)[^)]+\)/)?.[0].match(/\?/g) ?? []).length : 0;
     const industries = params.slice(index, index + industryCount);
@@ -93,6 +96,7 @@ function createDatabase() {
       .filter((row) => !query || [row.title, row.target, row.details]
         .some((value) => value.toLowerCase().includes(query)))
       .filter((row) => !category || row.category === category)
+      .filter((row) => !hasMonthRange || (row.startMonth <= endMonth && row.endMonth >= startMonth))
       .filter((row) => !industries.length || JSON.parse(row.industriesJson).some((value) => industries.includes(value)))
       .filter((row) => !regions.length || JSON.parse(row.regionsJson).some((value) => regions.includes(value)))
       .filter((row) => !businessSubcategories.length || inferBusinessSubcategories({ ...row, mainPackage: row.mainPackage === 1 })
@@ -116,8 +120,19 @@ function createDatabase() {
               }
               const pageParams = params.slice(params.length - 2);
               const [limit, offset] = pageParams;
+              const rankStart = statement.includes("CASE WHEN start_month = ?") ? params[params.length - 10] : null;
+              const rankEnd = statement.includes("CASE WHEN start_month = ?") ? params[params.length - 9] : null;
               const items = filterRows(statement, params)
-                .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id))
+                .sort((left, right) => {
+                  if (rankStart !== null) {
+                    const rank = (row) => row.startMonth === rankStart && row.endMonth === rankEnd ? 0
+                      : row.startMonth <= rankStart && row.endMonth >= rankEnd ? 1 : 2;
+                    const distance = (row) => rank(row) === 1 ? (rankStart - row.startMonth) + (row.endMonth - rankEnd) : 999;
+                    if (rank(left) !== rank(right)) return rank(left) - rank(right);
+                    if (distance(left) !== distance(right)) return distance(left) - distance(right);
+                  }
+                  return right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id);
+                })
                 .slice(offset, offset + limit);
               return { results: items };
             },
@@ -223,7 +238,7 @@ const catalogInput = {
   endMonth: 7,
   target: "해양 분야 스타트업",
   details: "테스트 베드와 후속 투자 검토",
-  industries: ["농림·수산·해양", "유통·소비재"],
+  industries: ["농림·수산·해양"],
   regions: ["서울", "부산"],
   mainPackage: false,
 };
@@ -272,6 +287,14 @@ test("validates and persists catalog CRUD through D1", async () => {
   assert.deepEqual(created.item.businessSubcategories, []);
   assert.equal(DB.rows.length, 1);
 
+  const multipleIndustries = await request("/api/catalog-programs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...catalogInput, industries: [INDUSTRY_OPTIONS[0], INDUSTRY_OPTIONS[1]] }),
+  });
+  assert.equal(multipleIndustries.status, 400);
+  assert.equal(DB.rows.length, 1);
+
   const unknownTag = await request("/api/catalog-programs", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -302,6 +325,22 @@ test("validates and persists catalog CRUD through D1", async () => {
   const deletedResponse = await request(`/api/catalog-programs/${created.item.id}`, { method: "DELETE" });
   assert.equal(deletedResponse.status, 200);
   assert.equal(DB.rows.length, 0);
+});
+
+test("normalizes catalog support text before Worker validation and persistence", async () => {
+  const DB = createDatabase();
+  const request = (path, options) => worker.fetch(new Request(`https://example.test${path}`, options), { DB });
+  const response = await request("/api/catalog-programs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...catalogInput, target: "• business\n• youth business", details: "• diagnosis\n• consulting" }),
+  });
+  const created = await response.json();
+  assert.equal(response.status, 201);
+  assert.equal(created.item.target, "- business\n- youth business");
+  assert.equal(created.item.details, "- diagnosis\n- consulting");
+  assert.equal(DB.rows[0].target, created.item.target);
+  assert.equal(DB.rows[0].details, created.item.details);
 });
 
 test("recomputes automatic business tags while preserving manual main package", async () => {
@@ -446,6 +485,31 @@ test("filters catalog tags with OR within dimensions and AND before pagination",
   assert.equal(tooManyFilters.status, 400);
 });
 
+test("filters catalog by overlapping months before pagination", async () => {
+  const DB = createDatabase();
+  const row = (id, startMonth, endMonth, updatedAt) => ({
+    id, category: "business", title: id, link: "https://example.test", amountKrw: 1_000_000,
+    startMonth, endMonth, target: id, details: id, industriesJson: "[]", regionsJson: "[]",
+    createdAt: updatedAt, updatedAt,
+  });
+  DB.rows.push(
+    row("latest", 11, 12, "2026-12-01T00:00:00.000Z"),
+    row("recent", 11, 12, "2026-11-01T00:00:00.000Z"),
+    row("closest-cover", 10, 12, "2026-01-01T00:00:00.000Z"),
+    row("wide-cover", 9, 12, "2026-10-01T00:00:00.000Z"),
+  );
+  const request = (path) => worker.fetch(new Request(`https://example.test${path}`), { DB });
+
+  const allPrograms = await (await request("/api/catalog-programs?category=business&limit=50&offset=0")).json();
+  assert.deepEqual(allPrograms.items.map((item) => item.id), ["latest", "recent", "wide-cover", "closest-cover"]);
+
+  const novemberToDecember = await (await request("/api/catalog-programs?category=business&startMonth=11&endMonth=12&limit=50&offset=0")).json();
+  assert.equal(novemberToDecember.total, 4);
+  assert.deepEqual(novemberToDecember.items.map((item) => item.id), ["latest", "recent", "closest-cover", "wide-cover"]);
+
+  assert.equal((await request("/api/catalog-programs?category=business&startMonth=7&endMonth=6")).status, 400);
+});
+
 test("derives and filters multiple business subcategories before pagination", async () => {
   const DB = createDatabase();
   const row = (id, title, details, regions, mainPackage, updatedAt) => ({
@@ -495,6 +559,7 @@ test("persists public roadmap drafts without applying PDF validity rules", async
     programs: [{
       id: "draft-1",
       category: "business",
+      displayCategory: "marketing",
       title: "",
       link: "",
       amountKrw: null,
@@ -521,6 +586,13 @@ test("persists public roadmap drafts without applying PDF validity rules", async
   });
   assert.equal(invalidAmount.status, 400);
 
+  const unsafeLink = await request("/api/roadmaps", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...draft, programs: [{ ...draft.programs[0], link: "javascript:alert(1)" }] }),
+  });
+  assert.equal(unsafeLink.status, 400);
+
   const missingTier = await request("/api/roadmaps", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -534,10 +606,21 @@ test("persists public roadmap drafts without applying PDF validity rules", async
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       ...draft,
-      programs: [{ ...draft.programs[0], id: "cert-1", category: "certification" }],
+      programs: [{ ...draft.programs[0], id: "cert-1", category: "certification", displayCategory: undefined }],
     }),
   });
   assert.equal(standardCertification.status, 400);
+  assert.equal(DB.rows.length, 0);
+
+  const invalidMarketing = await request("/api/roadmaps", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      ...draft,
+      programs: [{ ...draft.programs[0], category: "voucher" }],
+    }),
+  });
+  assert.equal(invalidMarketing.status, 400);
   assert.equal(DB.rows.length, 0);
 
   const premiumCertification = await request("/api/roadmaps", {
@@ -546,7 +629,7 @@ test("persists public roadmap drafts without applying PDF validity rules", async
     body: JSON.stringify({
       ...draft,
       tier: "premium",
-      programs: [{ ...draft.programs[0], id: "cert-1", category: "certification" }],
+      programs: [{ ...draft.programs[0], id: "cert-1", category: "certification", displayCategory: undefined }],
     }),
   });
   assert.equal(premiumCertification.status, 201);

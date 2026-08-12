@@ -8,6 +8,7 @@ import {
   REGION_OPTIONS,
   inferBusinessSubcategories,
 } from "../catalog-options.js";
+import { formatCatalogBulletText } from "../catalog-readability.js";
 
 const CATALOG_PATH = "/api/catalog-programs";
 const CATALOG_OPTIONS_PATH = "/api/catalog-options";
@@ -19,7 +20,7 @@ const ROADMAP_TIERS = new Set(["premium", "standard"]);
 const STANDARD_ROADMAP_CATEGORIES = new Set(["consulting", "business", "voucher", "ip"]);
 const FIELDS = new Set(["category", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "industries", "regions", "mainPackage"]);
 const ROADMAP_FIELDS = new Set(["tier", "clientName", "programs"]);
-const ROADMAP_PROGRAM_FIELDS = new Set(["id", "category", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "sequence", "laneIndex"]);
+const ROADMAP_PROGRAM_FIELDS = new Set(["id", "category", "displayCategory", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "sequence", "laneIndex"]);
 const INDUSTRIES = new Set(INDUSTRY_OPTIONS);
 const NON_INDUSTRIES = new Set(NON_INDUSTRY_OPTIONS);
 const REGIONS = new Set(REGION_OPTIONS);
@@ -301,8 +302,8 @@ function validateCatalogProgramWithOptions(input, options) {
     amountKrw: input.amountKrw,
     startMonth: input.startMonth,
     endMonth: input.endMonth,
-    target: cleanString(input.target),
-    details: cleanString(input.details),
+    target: formatCatalogBulletText(input.target),
+    details: formatCatalogBulletText(input.details),
     industries: cleanTags(input.industries, options.industries, "industries", fields),
     regions: cleanTags(input.regions, options.regions, "regions", fields),
     mainPackage: input.mainPackage ?? false,
@@ -327,6 +328,7 @@ function validateCatalogProgramWithOptions(input, options) {
   }
   if (!value.target || value.target.length > 1000) fields.target = "지원대상은 1~1,000자로 입력해 주세요.";
   if (!value.details || value.details.length > 4000) fields.details = "지원내용은 1~4,000자로 입력해 주세요.";
+  if (value.industries.length !== 1) fields.industries = "업종은 하나만 선택해 주세요.";
   if (typeof value.mainPackage !== "boolean") fields.mainPackage = "메인패키지 지정 여부를 확인해 주세요.";
   if (value.category !== "business" && value.mainPackage) fields.mainPackage = "메인패키지는 사업화 사업에만 지정할 수 있습니다.";
 
@@ -418,8 +420,18 @@ export function validateRoadmapDocumentForStorage(input) {
       return { error: `programs[${index}].id 형식이 올바르지 않습니다.` };
     }
     if (!CATEGORIES.has(program.category)) return { error: `programs[${index}].category가 올바르지 않습니다.` };
+    if (program.displayCategory !== undefined && (program.category !== "business" || program.displayCategory !== "marketing")) {
+      return { error: `programs[${index}].displayCategory가 올바르지 않습니다.` };
+    }
     if (!boundedString(program.title, 240)) return { error: `programs[${index}].title은 240자 이하여야 합니다.` };
     if (program.link !== undefined && !boundedString(program.link, 2048)) return { error: `programs[${index}].link가 올바르지 않습니다.` };
+    if (program.link) {
+      try {
+        if (!["http:", "https:"].includes(new URL(program.link).protocol)) throw new Error("protocol");
+      } catch {
+        return { error: `programs[${index}].link가 올바르지 않습니다.` };
+      }
+    }
     if (program.target !== undefined && !boundedString(program.target, 1000)) return { error: `programs[${index}].target이 올바르지 않습니다.` };
     if (program.details !== undefined && !boundedString(program.details, 4000)) return { error: `programs[${index}].details가 올바르지 않습니다.` };
     if (!draftNumber(program.startMonth) || !draftNumber(program.endMonth)) return { error: `programs[${index}]의 기간이 올바르지 않습니다.` };
@@ -472,6 +484,8 @@ async function listCatalog(request, db) {
   const url = new URL(request.url);
   const q = cleanString(url.searchParams.get("q")).slice(0, 100);
   const category = cleanString(url.searchParams.get("category"));
+  const startMonthText = cleanString(url.searchParams.get("startMonth"));
+  const endMonthText = cleanString(url.searchParams.get("endMonth"));
   const industries = [...new Set(url.searchParams.getAll("industry").map(cleanString).filter(Boolean))];
   const regions = [...new Set(url.searchParams.getAll("region").map(cleanString).filter(Boolean))];
   const businessSubcategories = [...new Set(url.searchParams.getAll("businessSubcategory").map(cleanString).filter(Boolean))];
@@ -487,8 +501,15 @@ async function listCatalog(request, db) {
   const offset = Number.isInteger(requestedOffset) ? Math.min(Math.max(requestedOffset, 0), 100_000) : 0;
   const filters = [];
   const searchParams = [];
+  const startMonth = startMonthText ? Number.parseInt(startMonthText, 10) : null;
+  const endMonth = endMonthText ? Number.parseInt(endMonthText, 10) : null;
   if (category && !CATALOG_CATEGORIES.has(category)) {
     return apiError(400, "사업 카탈로그에서 지원하지 않는 구분입니다.");
+  }
+  if ((startMonthText && (!Number.isInteger(startMonth) || String(startMonth) !== startMonthText || startMonth < 1 || startMonth > 12))
+    || (endMonthText && (!Number.isInteger(endMonth) || String(endMonth) !== endMonthText || endMonth < 1 || endMonth > 12))
+    || (startMonth !== null && endMonth !== null && startMonth > endMonth)) {
+    return apiError(400, "카탈로그 필터를 확인해 주세요.");
   }
   if (q) {
     filters.push("(title LIKE ? OR target LIKE ? OR details LIKE ?)");
@@ -497,6 +518,10 @@ async function listCatalog(request, db) {
   if (CATALOG_CATEGORIES.has(category)) {
     filters.push("category = ?");
     searchParams.push(category);
+  }
+  if (startMonth !== null || endMonth !== null) {
+    filters.push("start_month <= ? AND end_month >= ?");
+    searchParams.push(endMonth ?? 12, startMonth ?? 1);
   }
   if (businessSubcategories.length && category !== "business") {
     return apiError(400, "사업화 세부 분류는 사업화 구분에서만 사용할 수 있습니다.");
@@ -522,10 +547,21 @@ async function listCatalog(request, db) {
     filters.push(`(${predicates.join(" OR ")})`);
   }
   const searchSql = filters.length ? ` WHERE ${filters.join(" AND ")}` : "";
+  const periodOrder = startMonth !== null || endMonth !== null
+    ? `CASE WHEN start_month = ? AND end_month = ? THEN 0
+            WHEN start_month <= ? AND end_month >= ? THEN 1
+            ELSE 2 END,
+         CASE WHEN start_month <= ? AND end_month >= ?
+              THEN (? - start_month) + (end_month - ?)
+              ELSE 999 END,`
+    : "";
+  const periodOrderParams = startMonth !== null || endMonth !== null
+    ? [startMonth ?? 1, endMonth ?? 12, startMonth ?? 1, endMonth ?? 12, startMonth ?? 1, endMonth ?? 12, startMonth ?? 1, endMonth ?? 12]
+    : [];
 
   const [page, count] = await Promise.all([
-    db.prepare(`SELECT ${SELECT_FIELDS} FROM catalog_programs${searchSql} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`)
-      .bind(...searchParams, limit, offset)
+    db.prepare(`SELECT ${SELECT_FIELDS} FROM catalog_programs${searchSql} ORDER BY ${periodOrder} updated_at DESC, id DESC LIMIT ? OFFSET ?`)
+      .bind(...searchParams, ...periodOrderParams, limit, offset)
       .all(),
     db.prepare(`SELECT COUNT(*) AS total FROM catalog_programs${searchSql}`)
       .bind(...searchParams)

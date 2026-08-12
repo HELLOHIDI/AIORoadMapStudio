@@ -93,6 +93,6 @@ Build app UI in `src/`. Preserve the Sites packaging and static-fallback contrac
 - Keep `지원내용` as one concise sentence when it describes one benefit. When it contains multiple benefits, use separate `- ` bullet lines within the cell or field.
 - Record `지원금액` as the single largest explicitly stated monetary amount. Keep only the amount and unit; remove qualifiers such as `최대`, `기업당`, `건당`, and `이내`.
 - Resolve an initially unknown amount by checking the structured amount field, notice body, downloaded attachments, and extracted support details, then selecting the largest explicit monetary value found. Never infer an unstated amount; if no source contains a monetary value, keep `불명` and flag it for review.
-- Assign exactly two distinct upper-industry tags based on the title, target, and support details: `AI·디지털`, `바이오·헬스케어`, `제조·소부장`, `모빌리티·로봇`, `에너지·환경`, `콘텐츠·관광`, `유통·소비재`, `농림·수산·해양`, `금융·비즈니스서비스`, `건설·공간`, `국방·우주`, or `교육·사회서비스`. Do not create new industry tags.
+- Assign exactly one upper-industry tag based on the title, target, and support details: `AI·디지털`, `바이오·헬스케어`, `제조·소부장`, `모빌리티·로봇`, `에너지·환경`, `콘텐츠·관광`, `유통·소비재`, `농림·수산·해양`, `금융·비즈니스서비스`, `건설·공간`, `국방·우주`, or `교육·사회서비스`. Do not create new industry tags.
 - Assign every explicitly restricted region tag found in the eligibility conditions. If the program has no regional restriction, assign the `전국` tag.
 - Apply these transformations to the review dataset first. Do not write to the production catalog until the filtered and normalized result has been reviewed.

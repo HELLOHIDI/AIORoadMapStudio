@@ -1,4 +1,7 @@
 import { ROADMAP_CATEGORIES } from "./roadmap-policy.js";
+import { formatCatalogBulletText } from "../catalog-readability.js";
+
+export { formatCatalogBulletText };
 
 export const CATALOG_CATEGORIES = Object.freeze(
   ROADMAP_CATEGORIES.filter(({ key }) => key !== "consulting"),
@@ -23,15 +26,6 @@ const amountUnits = { 원: 1, 만원: 10_000, 백만원: 1_000_000, 천만원: 1
 
 function uniqueStrings(values) {
   return [...new Set((Array.isArray(values) ? values : []).map((value) => value.trim()).filter(Boolean))];
-}
-
-export function formatCatalogBulletText(value) {
-  return String(value ?? "")
-    .replace(/\r\n?/g, "\n")
-    .replace(/[ \t]*\n[ \t]*/g, "\n")
-    .replace(/(^|[ \t]+)-[ \t]+(?=\S)/g, (match, prefix) => `${prefix ? "\n" : ""}- `)
-    .replace(/\n{2,}/g, "\n")
-    .trim();
 }
 
 function parseAmount(value) {
@@ -86,13 +80,20 @@ export function parseCatalogText(text) {
   if (sections.지원내용) values.details = sections.지원내용;
   else warnings.push("지원내용을 입력해 주세요.");
 
-  if (!sections.지원기간) warnings.push("지원기간을 n~n월 형식으로 입력해 주세요.");
+  if (!sections.지원기간) warnings.push("지원기간을 MM~MM 형식으로 입력해 주세요.");
   else {
-    const period = sections.지원기간.match(/(\d{1,2})\s*~\s*(\d{1,2})\s*월/);
-    if (period && Number(period[1]) >= 1 && Number(period[2]) <= 12 && Number(period[1]) <= Number(period[2])) {
+    const period = sections.지원기간.match(/^\s*(\d{1,2})\s*월?\s*~\s*(\d{1,2})\s*월?\s*$/);
+    if (
+      period
+      && Number(period[1]) >= 1
+      && Number(period[1]) <= 12
+      && Number(period[2]) >= 1
+      && Number(period[2]) <= 12
+      && Number(period[1]) <= Number(period[2])
+    ) {
       [values.startMonth, values.endMonth] = [Number(period[1]), Number(period[2])];
     }
-    else warnings.push("지원기간을 n~n월 형식으로 확인해 주세요.");
+    else warnings.push("지원기간을 MM~MM 형식으로 확인해 주세요.");
   }
 
   if (!sections.지원금액) warnings.push("지원금액을 n만원, n백만원 또는 n억원 형식으로 입력해 주세요.");
@@ -113,8 +114,8 @@ export function catalogPayload(values) {
     amountKrw: values.amountKrw === "" ? null : Number(values.amountKrw),
     startMonth: Number(values.startMonth),
     endMonth: Number(values.endMonth),
-    target: values.target.trim(),
-    details: values.details.trim(),
+    target: formatCatalogBulletText(values.target),
+    details: formatCatalogBulletText(values.details),
     industries: uniqueStrings(values.industries),
     regions: uniqueStrings(values.regions),
     mainPackage: values.category === "business" && values.mainPackage === true,

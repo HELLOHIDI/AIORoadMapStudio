@@ -1,5 +1,6 @@
 import PptxGenJS from "pptxgenjs";
 import { formatAmount } from "./amount.js";
+import { roadmapProgramLabel } from "./roadmap-policy.js";
 
 const MM_PER_INCH = 25.4;
 const POINTS_PER_INCH = 72;
@@ -43,8 +44,8 @@ function pointMm(value) {
   return value * MM_PER_INCH / POINTS_PER_INCH;
 }
 
-function labelText(section, item) {
-  return `[${section.label}] ${item.title}`;
+function labelText(item) {
+  return `[${roadmapProgramLabel(item)}] ${item.title}`;
 }
 
 export function estimateProgramLabelWidthMm(text) {
@@ -61,7 +62,7 @@ export function estimateProgramLabelWidthMm(text) {
 
 export async function measureProgramLabelWidthsMm(layout, documentImplementation = globalThis.document) {
   const labels = layout.sections.flatMap((section) => section.lanes.flatMap(
-    (lane) => lane.map((item) => [item.id, labelText(section, item)]),
+    (lane) => lane.map((item) => [item.id, labelText(item)]),
   ));
   const fallback = Object.fromEntries(labels.map(([id, text]) => [id, estimateProgramLabelWidthMm(text)]));
   if (!documentImplementation?.createElement) return fallback;
@@ -237,7 +238,7 @@ function addProgram(slide, shapeType, section, item, laneY, timelineLeft, timeli
   const textX = barX + pointMm(PPTX_PROGRAM_TEXT.labelLeftPt);
   const textY = barY - PPTX_PROGRAM_TEXT.labelHeightMm;
   const textWidth = timelineLeft + timelineWidth - textX;
-  const label = labelText(section, item);
+  const label = labelText(item);
 
   slide.addText(label, {
     x: mm(textX),

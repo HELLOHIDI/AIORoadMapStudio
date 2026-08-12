@@ -49,7 +49,7 @@ async function main() {
     });
   }
   const refreshedOptions = await request("/api/catalog-options");
-  const invalid = pending.filter(({ industries, regions }) => industries.length !== 2 || industries.some((tag) => !refreshedOptions.industries.includes(tag)) || regions.some((tag) => !refreshedOptions.regions.includes(tag)));
+  const invalid = pending.filter(({ industries, regions }) => industries.length !== 1 || industries.some((tag) => !refreshedOptions.industries.includes(tag)) || regions.some((tag) => !refreshedOptions.regions.includes(tag)));
   if (invalid.length) throw new Error(`Catalog-option validation failed for ${invalid.length} records.`);
 
   let cursor = 0;

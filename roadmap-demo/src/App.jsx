@@ -5,7 +5,7 @@ import { formatAmount } from "./amount.js";
 import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, EMPTY_CATALOG_PROGRAM, formatCatalogBulletText, parseCatalogText } from "./catalog.js";
 import { runPdfPreflight } from "./pdf-preflight.js";
 import { detectPdfRuntime, PDF_RUNTIME } from "./pdf-runtime.js";
-import { allowedCategoriesForTier, buildRoadmapLayout, moveProgramToLane, ROADMAP_CATEGORIES, resolveRoadmapTier } from "./roadmap-policy.js";
+import { allowedCategoriesForTier, buildRoadmapLayout, moveProgramToTargetLane, ROADMAP_CATEGORIES, roadmapProgramLabel, resolveRoadmapTier, shiftProgramByMonths } from "./roadmap-policy.js";
 
 const months = Array.from({ length: 12 }, (_, index) => `${index + 1}월`);
 const categoryLabel = Object.fromEntries(ROADMAP_CATEGORIES.map(({ key, label }) => [key, label]));
@@ -37,6 +37,21 @@ function formatFeedbackTime(value) {
   return new Date(value).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+function formatCatalogPeriod(program) {
+  const start = String(program.startMonth).padStart(2, "0");
+  const end = String(program.endMonth).padStart(2, "0");
+  return `${start}월~${end}월`;
+}
+
+function safeExternalUrl(value) {
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
 function RoadmapEvent({
   item,
   dragging,
@@ -51,7 +66,9 @@ function RoadmapEvent({
   roadmapSaved,
   onDragStart,
   onDragEnd,
+  onDragPointerDown,
   onMove,
+  onShift,
   onOpen,
   onDraftChange,
   onPasswordChange,
@@ -60,8 +77,12 @@ function RoadmapEvent({
 }) {
   const suppressClick = useRef(false);
   const moveByKeyboard = (event) => {
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
     event.preventDefault();
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      onShift(item.id, event.key === "ArrowLeft" ? -1 : 1);
+      return;
+    }
     onMove(item.id, item.rowIndex + (event.key === "ArrowUp" ? -1 : 1));
   };
   const unresolved = thread && thread.status !== "resolved";
@@ -78,7 +99,8 @@ function RoadmapEvent({
         className="roadmap-event__main"
         draggable
         aria-pressed={selected}
-        aria-label={`${item.title}, ${categoryLabel[item.category]}.${unresolved ? " 미해결 피드백 있음." : ""} 위아래 화살표 키로 행 이동`}
+        aria-label={`${item.title}, ${roadmapProgramLabel(item)}.${unresolved ? " 미해결 피드백 있음." : ""} 드래그로 행 또는 한 달 이동. 화살표 키로도 이동 가능`}
+        onPointerDown={(event) => onDragPointerDown(item.id, event.clientX)}
         onDragStart={(event) => {
           suppressClick.current = true;
           onDragStart(event, item.id);
@@ -94,7 +116,7 @@ function RoadmapEvent({
         }}
       >
         <span className="roadmap-event__copy">
-          <span>{`[${categoryLabel[item.category]}] ${item.title}`}</span>
+          <span>{`[${roadmapProgramLabel(item)}] ${item.title}`}</span>
           {item.amountKrw != null ? <sup>{formatAmount(item.amountKrw)}</sup> : null}
         </span>
         <span className="roadmap-event__bar" />
@@ -236,18 +258,46 @@ function FeedbackPanel({
   );
 }
 
-function ProgramEditor({ program, categories, onChange, onDelete }) {
+function ProgramEditor({ program, categories, placementError, onChange, onDelete }) {
   const number = (value) => value === "" ? "" : Number(value);
+  const selectedCategory = program.category === "business" && program.displayCategory === "marketing" ? "marketing" : program.category;
+  const detailLink = safeExternalUrl(program.link);
+  const hasDetails = Boolean(program.target || program.details || detailLink);
+  const placementErrorId = `program-placement-error-${program.id}`;
   return (
-    <div className="program-row">
-      <select aria-label="구분" value={program.category} onChange={(event) => onChange({ category: event.target.value })}>
-        {categories.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
-      </select>
-      <input aria-label="사업명" value={program.title} onChange={(event) => onChange({ title: event.target.value })} placeholder="사업명" />
-      <input aria-label="시작월" type="number" min="1" max="12" value={program.startMonth} onChange={(event) => onChange({ startMonth: number(event.target.value) })} />
-      <input aria-label="종료월" type="number" min="1" max="12" value={program.endMonth} onChange={(event) => onChange({ endMonth: number(event.target.value) })} />
-      <input aria-label="금액" type="number" min="1" step="1" value={program.amountKrw ?? ""} onChange={(event) => onChange({ amountKrw: event.target.value === "" ? null : Number(event.target.value) })} placeholder="금액(원)" />
-      <button type="button" className="delete-program" onClick={onDelete} aria-label={`${program.title || "새 사업"} 삭제`}>×</button>
+    <div
+      className={`program-editor${placementError ? " program-editor--unplaced" : ""}`}
+      role="group"
+      aria-label={`${program.title || "이름 없는 사업"} 편집`}
+      aria-describedby={placementError ? placementErrorId : undefined}
+      aria-invalid={placementError ? "true" : undefined}
+    >
+      <div className="program-row">
+        <select aria-label="구분" value={selectedCategory} onChange={(event) => {
+          const category = event.target.value;
+          onChange(category === "marketing"
+            ? { category: "business", displayCategory: "marketing" }
+            : { category, displayCategory: undefined });
+        }}>
+          {categories.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
+        </select>
+        <input aria-label="사업명" value={program.title} onChange={(event) => onChange({ title: event.target.value })} placeholder="사업명" />
+        <input aria-label="시작월" type="number" min="1" max="12" value={program.startMonth} onChange={(event) => onChange({ startMonth: number(event.target.value) })} />
+        <input aria-label="종료월" type="number" min="1" max="12" value={program.endMonth} onChange={(event) => onChange({ endMonth: number(event.target.value) })} />
+        <input aria-label="금액" type="number" min="1" step="1" value={program.amountKrw ?? ""} onChange={(event) => onChange({ amountKrw: event.target.value === "" ? null : Number(event.target.value) })} placeholder="금액(원)" />
+        <button type="button" className="delete-program" onClick={onDelete} aria-label={`${program.title || "새 사업"} 삭제`}>×</button>
+      </div>
+      {placementError ? (
+        <p id={placementErrorId} className="program-placement-error" role="alert"><strong>로드맵 미배치</strong> {placementError.message}</p>
+      ) : null}
+      {hasDetails ? (
+        <details className="program-details">
+          <summary>사업 정보 보기</summary>
+          {program.target ? <p className="catalog-row__detail"><strong>지원대상:</strong><span>{formatCatalogBulletText(program.target)}</span></p> : null}
+          {program.details ? <p className="catalog-row__detail"><strong>지원 내용:</strong><span>{formatCatalogBulletText(program.details)}</span></p> : null}
+          {detailLink ? <p className="catalog-row__detail"><strong>공고 링크:</strong><a href={detailLink} target="_blank" rel="noreferrer">공고 링크 열기</a></p> : null}
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -256,7 +306,7 @@ function FieldError({ errors, name }) {
   return errors?.[name] ? <small className="field-error">{errors[name]}</small> : null;
 }
 
-function TagPicker({ label, options, value = [], onChange, onCreate, collapsible = false }) {
+function TagPicker({ label, options, value = [], onChange, onCreate, collapsible = false, maxSelections }) {
   const [query, setQuery] = useState("");
   const [createState, setCreateState] = useState({ status: "idle", error: "", message: "" });
   const selected = Array.isArray(value) ? value : [];
@@ -265,7 +315,7 @@ function TagPicker({ label, options, value = [], onChange, onCreate, collapsible
   const hasExactMatch = options.includes(normalizedQuery);
   const toggle = (option) => onChange(selected.includes(option)
     ? selected.filter((item) => item !== option)
-    : [...selected, option]);
+    : maxSelections === 1 ? [option] : [...selected, option]);
   const createOption = async () => {
     if (!normalizedQuery || createState.status === "saving") return;
     setCreateState({ status: "saving", error: "", message: "" });
@@ -496,6 +546,7 @@ function CatalogForm({ categories, form, state, options, onChange, onCancel, onC
           value={values.industries}
           onChange={(next) => change("industries", next)}
           onCreate={null}
+          maxSelections={1}
         />
         <TagPicker
           label="지역"
@@ -531,7 +582,7 @@ function CatalogForm({ categories, form, state, options, onChange, onCancel, onC
           <FieldError errors={state.fields} name="link" />
         </label>
         <label>
-          <span>최대 지원금액(원)</span>
+          <span>최대 지원금(원)</span>
           <input type="number" min="1" step="1" value={values.amountKrw} onChange={(event) => change("amountKrw", event.target.value)} aria-invalid={invalid("amountKrw")} placeholder="미정이면 비워두기" />
           <FieldError errors={state.fields} name="amountKrw" />
         </label>
@@ -584,6 +635,8 @@ export function App() {
   const [catalogSearch, setCatalogSearch] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogCategory, setCatalogCategory] = useState(CATALOG_CATEGORIES[0].key);
+  const [catalogStartMonth, setCatalogStartMonth] = useState("1");
+  const [catalogEndMonth, setCatalogEndMonth] = useState("12");
   const [catalogIndustries, setCatalogIndustries] = useState([]);
   const [catalogRegions, setCatalogRegions] = useState([]);
   const [catalogBusinessSubcategories, setCatalogBusinessSubcategories] = useState([]);
@@ -601,6 +654,8 @@ export function App() {
   const [deletingId, setDeletingId] = useState(null);
   const [activeCategory, setActiveCategory] = useState(ROADMAP_CATEGORIES[0].key);
   const [draggingProgramId, setDraggingProgramId] = useState(null);
+  const dragProgramId = useRef(null);
+  const dragStartClientX = useRef(null);
   const [layoutNotice, setLayoutNotice] = useState("");
   const [feedback, setFeedback] = useState({ status: "idle", items: [], error: "" });
   const [feedbackRefresh, setFeedbackRefresh] = useState(0);
@@ -619,6 +674,9 @@ export function App() {
   const documentSignature = useMemo(() => JSON.stringify(document), [document]);
   const documentTier = resolveRoadmapTier(document);
   const allowedCategories = useMemo(() => allowedCategoriesForTier(documentTier), [documentTier]);
+  const editorCategories = useMemo(() => allowedCategories.flatMap((category) => (
+    category.key === "business" ? [category, { key: "marketing", label: "마케팅" }] : [category]
+  )), [allowedCategories]);
   const allowedCategoryKeys = useMemo(() => new Set(allowedCategories.map(({ key }) => key)), [allowedCategories]);
   const firstAllowedCategory = allowedCategories[0].key;
   const catalogCategories = useMemo(
@@ -635,6 +693,9 @@ export function App() {
   const selectedFeedbackProgram = selectedFeedbackProgramId
     ? document.programs.find((program) => program.id === selectedFeedbackProgramId)
     : null;
+  const placementErrorsByProgram = useMemo(() => new Map(layout.errors
+    .filter(({ code, programId }) => code === "E_ROW_CAPACITY" && programId)
+    .map((item) => [item.programId, item])), [layout.errors]);
 
   useEffect(() => {
     if (screen !== "editor") return undefined;
@@ -708,6 +769,10 @@ export function App() {
     const params = new URLSearchParams({ limit: "50", offset: String(catalogOffset) });
     if (catalogQuery) params.set("q", catalogQuery);
     params.set("category", catalogCategoryKeys.has(catalogCategory) ? catalogCategory : firstCatalogCategory);
+    if (catalogStartMonth !== "1" || catalogEndMonth !== "12") {
+      params.set("startMonth", catalogStartMonth);
+      params.set("endMonth", catalogEndMonth);
+    }
     catalogIndustries.forEach((value) => params.append("industry", value));
     catalogRegions.forEach((value) => params.append("region", value));
     if (catalogCategory === "business") {
@@ -725,7 +790,7 @@ export function App() {
       });
 
     return () => controller.abort();
-  }, [screen, mode, catalogQuery, catalogCategory, catalogIndustries, catalogRegions, catalogBusinessSubcategories, catalogOffset, catalogRefresh, catalogCategoryKeys, firstCatalogCategory]);
+  }, [screen, mode, catalogQuery, catalogCategory, catalogStartMonth, catalogEndMonth, catalogIndustries, catalogRegions, catalogBusinessSubcategories, catalogOffset, catalogRefresh, catalogCategoryKeys, firstCatalogCategory]);
 
   useEffect(() => {
     if (screen !== "editor" || mode !== "roadmap") return undefined;
@@ -927,6 +992,7 @@ export function App() {
       if (patch.category && !allowedCategoryKeys.has(patch.category)) return program;
       const next = { ...program, ...patch };
       if (patch.category && patch.category !== program.category) delete next.laneIndex;
+      if (next.category !== "business" || next.displayCategory === undefined) delete next.displayCategory;
       return next;
     }),
   }));
@@ -959,24 +1025,56 @@ export function App() {
     programs: current.programs.filter((program) => program.id !== id),
   }));
 
+  const laneDropResult = (programId, targetLaneIndex) => {
+    return moveProgramToTargetLane({ programs: document.programs, programId, targetLaneIndex, tier: documentTier });
+  };
+
   const moveProgram = (programId, targetLaneIndex) => {
-    const result = moveProgramToLane({ programs: document.programs, programId, targetLaneIndex, tier: documentTier });
+    const result = laneDropResult(programId, targetLaneIndex);
     if (!result.ok) {
       setLayoutNotice("해당 행에는 배치할 수 없습니다.");
       return;
     }
     setDocument((current) => ({ ...current, programs: result.programs }));
-    setLayoutNotice(result.outcome === "swapped" ? "겹치는 사업의 행을 교환했습니다." : "사업의 행을 이동했습니다.");
+    setLayoutNotice(result.outcome === "swapped-pair" ? "두 사업과 행을 교환했습니다." : result.outcome === "swapped" ? "겹치는 사업의 행을 교환했습니다." : "사업의 행을 이동했습니다.");
+  };
+
+  const shiftProgram = (programId, deltaMonths) => {
+    const result = shiftProgramByMonths({ programs: document.programs, programId, deltaMonths, tier: documentTier });
+    if (!result.ok) {
+      setLayoutNotice("That month shift is not available.");
+      return;
+    }
+    setDocument((current) => ({ ...current, programs: result.programs }));
+    setLayoutNotice("Program period shifted by one month.");
   };
 
   const startDrag = (event, programId) => {
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", programId);
+    dragProgramId.current = programId;
     setLayoutNotice("");
     setDraggingProgramId(programId);
   };
 
-  const endDrag = () => setDraggingProgramId(null);
+  const endDrag = () => {
+    dragProgramId.current = null;
+    dragStartClientX.current = null;
+    setDraggingProgramId(null);
+  };
+
+  const dropProgram = (event, programId, targetLaneIndex) => {
+    const section = layout.sections.find((item) => item.key === document.programs.find((item) => item.id === programId)?.category);
+    const sourceLaneIndex = section?.lanes.findIndex((lane) => lane.some((item) => item.id === programId));
+    if (targetLaneIndex !== sourceLaneIndex) {
+      moveProgram(programId, targetLaneIndex);
+      return;
+    }
+    const monthWidth = event.currentTarget.getBoundingClientRect().width / 12;
+    const startClientX = dragStartClientX.current?.programId === programId ? dragStartClientX.current.clientX : event.clientX;
+    const deltaMonths = monthWidth ? Math.round((event.clientX - startClientX) / monthWidth) : 0;
+    if (deltaMonths === -1 || deltaMonths === 1) shiftProgram(programId, deltaMonths);
+  };
 
   const openProgramFeedback = (programId) => {
     if (draggingProgramId || (roadmapId && feedback.status === "loading")) return;
@@ -1298,7 +1396,11 @@ export function App() {
   )));
   const canGoBack = catalogOffset > 0;
   const canGoForward = catalogOffset + catalog.items.length < catalog.total;
-  const hasCatalogFilters = Boolean(catalogQuery || catalogIndustries.length || catalogRegions.length || catalogBusinessSubcategories.length);
+  const catalogPeriodChanged = catalogStartMonth !== "1" || catalogEndMonth !== "12";
+  const catalogPeriodLabel = catalogPeriodChanged
+    ? formatCatalogPeriod({ startMonth: catalogStartMonth, endMonth: catalogEndMonth })
+    : "전체 기간";
+  const hasCatalogFilters = Boolean(catalogQuery || catalogPeriodChanged || catalogIndustries.length || catalogRegions.length || catalogBusinessSubcategories.length);
   const activePrograms = document.programs.filter((program) => program.category === activeCategory && allowedCategoryKeys.has(program.category));
   const draggingProgram = document.programs.find((program) => program.id === draggingProgramId);
 
@@ -1371,14 +1473,16 @@ export function App() {
                             className="roadmap-lane"
                             key={`${section.key}-${laneIndex}`}
                             data-drop-state={draggingProgram?.category === section.key
-                              ? (moveProgramToLane({ programs: document.programs, programId: draggingProgramId, targetLaneIndex: laneIndex, tier: documentTier }).ok ? "valid" : "invalid")
+                              ? (laneDropResult(draggingProgramId, laneIndex).ok ? "valid" : "invalid")
                               : undefined}
                             onDragOver={(event) => {
-                              if (draggingProgram?.category === section.key) event.preventDefault();
+                              const programId = event.dataTransfer.getData("text/plain") || dragProgramId.current;
+                              if (document.programs.find((item) => item.id === programId)?.category === section.key) event.preventDefault();
                             }}
                             onDrop={(event) => {
                               event.preventDefault();
-                              if (draggingProgram?.category === section.key) moveProgram(draggingProgramId, laneIndex);
+                              const programId = event.dataTransfer.getData("text/plain") || dragProgramId.current;
+                              if (document.programs.find((item) => item.id === programId)?.category === section.key) dropProgram(event, programId, laneIndex);
                               endDrag();
                             }}
                           >
@@ -1398,7 +1502,9 @@ export function App() {
                                 roadmapSaved={Boolean(roadmapId)}
                                 onDragStart={startDrag}
                                 onDragEnd={endDrag}
+                                onDragPointerDown={(programId, clientX) => { dragStartClientX.current = { programId, clientX }; }}
                                 onMove={moveProgram}
+                                onShift={shiftProgram}
                                 onOpen={openProgramFeedback}
                                 onDraftChange={setFeedbackDraft}
                                 onPasswordChange={setLeadPassword}
@@ -1455,7 +1561,8 @@ export function App() {
                 <ProgramEditor
                   key={program.id}
                   program={program}
-                  categories={allowedCategories}
+                  categories={editorCategories}
+                  placementError={placementErrorsByProgram.get(program.id)}
                   onChange={(patch) => updateProgram(program.id, patch)}
                   onDelete={() => deleteProgram(program.id)}
                 />
@@ -1526,6 +1633,28 @@ export function App() {
                   <span>사업 검색</span>
                   <input type="search" value={catalogSearch} onChange={(event) => setCatalogSearch(event.target.value)} placeholder="사업명, 지원대상, 지원내용" />
                 </label>
+                <label className="catalog-toolbar__month">
+                  <span>시작월</span>
+                  <select value={catalogStartMonth} onChange={(event) => {
+                    const next = Number(event.target.value);
+                    setCatalogStartMonth(String(next));
+                    if (next > Number(catalogEndMonth)) setCatalogEndMonth(String(next));
+                    setCatalogOffset(0);
+                  }}>
+                    {months.map((month, index) => <option key={month} value={index + 1}>{month}</option>)}
+                  </select>
+                </label>
+                <label className="catalog-toolbar__month">
+                  <span>종료월</span>
+                  <select value={catalogEndMonth} onChange={(event) => {
+                    const next = Number(event.target.value);
+                    setCatalogEndMonth(String(next));
+                    if (next < Number(catalogStartMonth)) setCatalogStartMonth(String(next));
+                    setCatalogOffset(0);
+                  }}>
+                    {months.map((month, index) => <option key={month} value={index + 1}>{month}</option>)}
+                  </select>
+                </label>
                 <button type="submit" className="button-secondary">검색</button>
               </form>
               <nav className="category-tabs catalog-category-tabs" aria-label="사업 카탈로그 구분">
@@ -1554,17 +1683,24 @@ export function App() {
                   setCatalogOffset(0);
                 }} />
               </section>
-              {catalogIndustries.length || catalogRegions.length || catalogBusinessSubcategories.length ? (
+              {hasCatalogFilters ? (
                 <div className="catalog-filter-actions">
-                  <span>각 필터 안에서는 하나 이상, 필터 간에는 모든 조건을 만족하는 사업을 찾습니다.</span>
+                  <span>{catalogPeriodLabel} 포함 사업을 찾습니다.</span>
                   <button type="button" className="button-tertiary" onClick={() => {
+                    setCatalogSearch("");
+                    setCatalogQuery("");
+                    setCatalogStartMonth("1");
+                    setCatalogEndMonth("12");
                     setCatalogBusinessSubcategories([]);
                     setCatalogIndustries([]);
                     setCatalogRegions([]);
                     setCatalogOffset(0);
-                  }}>필터 초기화</button>
+                  }}>검색·필터 초기화</button>
                 </div>
               ) : null}
+              <p className="catalog-filter-status" role="status">
+                조회 기간 {catalogPeriodLabel}
+              </p>
 
               {catalogOptions.error ? <p className="catalog-notice catalog-notice--error" role="alert">{catalogOptions.error}</p> : null}
 
@@ -1599,7 +1735,7 @@ export function App() {
                       </div>
                       <dl className="catalog-row__meta">
                         <div><dt>지원금액</dt><dd>{program.amountKrw == null ? "금액 미정" : `최대 ${formatAmount(program.amountKrw)}`}</dd></div>
-                        <div><dt>지원기간</dt><dd>{program.startMonth}~{program.endMonth}월</dd></div>
+                        <div><dt>지원기간</dt><dd>{formatCatalogPeriod(program)}</dd></div>
                         {program.businessSubcategories?.length ? <div><dt>세부 분류</dt><dd>{program.businessSubcategories.map((tag) => <span key={tag}>{tag}</span>)}</dd></div> : null}
                         {program.industries?.length ? <div><dt>업종</dt><dd>{program.industries.map((tag) => <span key={tag}>{tag}</span>)}</dd></div> : null}
                         {program.regions?.length ? <div><dt>지역</dt><dd>{program.regions.map((tag) => <span key={tag}>{tag}</span>)}</dd></div> : null}

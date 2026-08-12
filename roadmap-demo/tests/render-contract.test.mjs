@@ -7,6 +7,7 @@ import { PPTX_LAYOUT } from "../src/pptx-export.js";
 const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const app = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const pptxExport = readFileSync(new URL("../src/pptx-export.js", import.meta.url), "utf8");
+const worker = readFileSync(new URL("../worker/index.js", import.meta.url), "utf8");
 const pdfVerifier = readFileSync(new URL("../scripts/verify-roadmap-pdf.mjs", import.meta.url), "utf8");
 const pptxVerifier = readFileSync(new URL("../scripts/verify-roadmap-pptx.mjs", import.meta.url), "utf8");
 const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
@@ -100,7 +101,7 @@ test("resolves authoring categories from the immutable roadmap tier", () => {
   assert.ok(app.includes("const nextFirstCategory = allowedCategoriesForTier(resolveRoadmapTier(data.item.document))[0].key"));
   assert.ok(app.includes("allowedCategories.map(({ key, label })"));
   assert.ok(app.includes("catalogCategories.map(({ key, label })"));
-  assert.ok(app.includes("categories={allowedCategories}"));
+  assert.ok(app.includes("categories={editorCategories}"));
   assert.ok(app.includes("params.set(\"category\", catalogCategoryKeys.has(catalogCategory) ? catalogCategory : firstCatalogCategory)"));
   assert.ok(app.includes("if (!allowedCategoryKeys.has(program.category))"));
   assert.ok(app.includes("tier: documentTier"));
@@ -135,6 +136,9 @@ test("keeps shared tag creation and catalog filters wired to the server", () => 
   assert.ok(app.includes('params.append("industry", value)'));
   assert.ok(app.includes('params.append("region", value)'));
   assert.ok(app.includes('params.append("businessSubcategory", value)'));
+  assert.doesNotMatch(app, /supportYear|지원연도|연도 미정/);
+  assert.ok(app.includes('params.set("startMonth", catalogStartMonth)'));
+  assert.ok(app.includes('params.set("endMonth", catalogEndMonth)'));
   assert.ok(app.includes('onCreate={form.mode === "create"'));
   assert.ok(app.includes('“${normalizedQuery}” 공용 선택지로 추가'));
   assert.match(app, /<TagPicker collapsible label="업종 필터"/);
@@ -142,9 +146,12 @@ test("keeps shared tag creation and catalog filters wired to the server", () => 
   assert.match(app, /<TagPicker collapsible label="사업화 세부 분류"/);
   assert.ok(app.includes('className="catalog-main-package-toggle"'));
   assert.ok(app.includes("program.businessSubcategories?.length"));
+  assert.ok(app.includes("formatCatalogPeriod(program)"));
+  assert.ok(app.includes('className="catalog-filter-status" role="status"'));
   assert.ok(app.includes('aria-label="대한민국 행정구역별 지역 필터"'));
   assert.ok(app.includes('<details className="tag-picker-disclosure">'));
   assert.match(styles, /\.catalog-filters\s*\{/);
+  assert.match(styles, /\.catalog-filter-status\s*\{/);
   assert.match(styles, /\.tag-picker-disclosure\s*\{/);
   assert.match(styles, /\.tag-picker__create\s*\{/);
   assert.match(styles, /\.region-filter__groups\s*\{/);
@@ -196,6 +203,9 @@ test("keeps category tabs and direct roadmap moves outside print", () => {
   assert.ok(app.includes('category, title: ""'));
   assert.ok(app.includes('draggable'));
   assert.ok(app.includes('onDrop={(event) =>'));
+  assert.ok(app.includes('event.dataTransfer.getData("text/plain") || dragProgramId.current'));
+  assert.ok(app.includes('const deltaMonths = monthWidth ? Math.round((event.clientX - startClientX) / monthWidth) : 0;'));
+  assert.ok(app.includes('dropProgram(event, programId, laneIndex)'));
   assert.ok(!app.includes('roadmap-event__handle'));
   assert.ok(app.includes('params.set("category", catalogCategoryKeys.has(catalogCategory) ? catalogCategory : firstCatalogCategory)'));
   assert.ok(app.includes('사업 상세보기'));
@@ -209,4 +219,26 @@ test("keeps category tabs and direct roadmap moves outside print", () => {
   assert.match(styles, /\.roadmap-lane\[data-drop-state="valid"\][\s\S]*outline:\s*0\.6pt dashed/s);
   assert.doesNotMatch(styles, /standard[\s\S]*\.roadmap-lane[\s\S]*height:/i);
   assert.match(styles, /@media print\s*\{[\s\S]*\.roadmap-lane\[data-drop-state\]\s*\{[^}]*outline:\s*0;/s);
+});
+
+test("keeps marketing and placement guidance inside roadmap authoring", () => {
+  const catalogFields = worker.match(/const FIELDS = new Set\([^\n]+/)?.[0] ?? "";
+  const roadmapFields = worker.match(/const ROADMAP_PROGRAM_FIELDS = new Set\([^\n]+/)?.[0] ?? "";
+
+  assert.ok(app.includes('{ key: "marketing", label: "마케팅" }'));
+  assert.ok(app.includes('{ category: "business", displayCategory: "marketing" }'));
+  assert.ok(app.includes("roadmapProgramLabel(item)"));
+  assert.ok(app.includes("사업 정보 보기"));
+  assert.ok(app.includes("로드맵 미배치"));
+  assert.ok(app.includes('code === "E_ROW_CAPACITY" && programId'));
+  assert.ok(app.includes("safeExternalUrl(program.link)"));
+  assert.ok(app.includes('role="group"'));
+  assert.ok(app.includes("aria-describedby={placementError ? placementErrorId : undefined}"));
+  assert.ok(app.includes('aria-invalid={placementError ? "true" : undefined}'));
+  assert.match(styles, /\.program-editor--unplaced\s*\{[^}]*border-left-color:\s*#b42318;[^}]*background:\s*#fff1f1;/s);
+  assert.match(styles, /\.program-placement-error strong\s*\{[^}]*background:\s*#b42318;/s);
+  assert.match(roadmapFields, /displayCategory/);
+  assert.doesNotMatch(catalogFields, /displayCategory/);
+  assert.ok(pptxExport.includes("roadmapProgramLabel(item)"));
+  assert.equal(pptxExport.includes("로드맵 미배치"), false);
 });

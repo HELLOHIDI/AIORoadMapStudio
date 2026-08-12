@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import JSZip from "jszip";
-import { buildRoadmapLayout, ROADMAP_CATEGORIES } from "../src/roadmap-policy.js";
+import { buildRoadmapLayout, ROADMAP_CATEGORIES, shiftProgramByMonths } from "../src/roadmap-policy.js";
 import {
   createRoadmapPresentation,
   exportRoadmapPptx,
@@ -65,6 +65,22 @@ function totalLaneCount(layout) {
   return layout.sections.reduce((total, section) => total + section.lanes.length, 0);
 }
 
+test("PPTX bar geometry follows a one-month policy shift", async () => {
+  const roadmap = {
+    clientName: "shift",
+    programs: [{ id: "shift", category: "consulting", title: "shift", startMonth: 3, endMonth: 4, amountKrw: null, sequence: 0, laneIndex: 0 }],
+  };
+  const shifted = shiftProgramByMonths({ programs: roadmap.programs, programId: "shift", deltaMonths: 1 });
+  const before = await buildPackage(roadmap);
+  const after = await buildPackage({ ...roadmap, programs: shifted.programs });
+  const beforeBar = shapeOffset(shapeXmlByName(before.slideXml, "anp.roadmap.program.shift.bar"));
+  const afterBar = shapeOffset(shapeXmlByName(after.slideXml, "anp.roadmap.program.shift.bar"));
+  const timelineWidth = PPTX_LAYOUT.page.widthMm - PPTX_LAYOUT.content.leftMm - PPTX_LAYOUT.content.rightMm - PPTX_LAYOUT.categoryWidthMm;
+
+  assert.equal(afterBar.x - beforeBar.x, Math.round(timelineWidth / 12 * 36000));
+  assert.equal(afterBar.y, beforeBar.y);
+});
+
 test("PPTX 파일명은 안전한 고객명과 pptx 확장자를 사용한다", () => {
   assert.equal(
     sanitizePptxFileName('  알파:/브라더스?  '),
@@ -106,6 +122,20 @@ test("브라우저에서 로드된 승인 글꼴로 프로그램 제목 폭을 �
   assert.match(loadedFont, /700 6pt "NanumSquare AC"/);
   assert.equal(canvasFont, loadedFont);
   assert.ok(Math.abs(widths["width-program"] - 25.4) < 0.001);
+});
+
+test("PPTX uses the roadmap-only business or marketing prefix", async () => {
+  const { layout, slideXml } = await buildPackage({
+    clientName: "표시 구분",
+    programs: [
+      { id: "business-label", category: "business", title: "사업화 지원", startMonth: 1, endMonth: 1, amountKrw: null, sequence: 0 },
+      { id: "marketing-label", category: "business", displayCategory: "marketing", title: "홍보 지원", startMonth: 2, endMonth: 2, amountKrw: null, sequence: 1 },
+    ],
+  });
+
+  assert.equal(layout.errors.length, 0);
+  assert.match(slideXml, /\[사업화] 사업화 지원/);
+  assert.match(slideXml, /\[마케팅] 홍보 지원/);
 });
 
 test("레이아웃 오류가 있으면 PPTX 생성을 차단하고 원래 오류를 보존한다", async () => {

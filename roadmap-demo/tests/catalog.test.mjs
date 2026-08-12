@@ -9,6 +9,7 @@ import {
 } from "../catalog-options.js";
 import { ADMINISTRATIVE_REGION_GROUPS, groupAdministrativeRegionOptions, inferIndustries, inferRegions } from "../catalog-tag-policy.js";
 import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, formatCatalogBulletText, parseCatalogText } from "../src/catalog.js";
+import { classifyCatalogReadability } from "../catalog-readability.js";
 
 test("keeps consulting out of the shared catalog categories", () => {
   assert.deepEqual(CATALOG_CATEGORIES.map(({ key }) => key), ["business", "voucher", "ip", "certification"]);
@@ -25,7 +26,7 @@ test("keeps consulting out of the shared catalog categories", () => {
 test("breaks catalog targets and details at spaced bullet hyphens", () => {
   assert.equal(
     formatCatalogBulletText("통합 지원 - 진단 및 컨설팅 - 시제품 제작"),
-    "통합 지원\n- 진단 및 컨설팅\n- 시제품 제작",
+    "통합 지원 - 진단 및 컨설팅 - 시제품 제작",
   );
   assert.equal(
     formatCatalogBulletText("- 첫 번째 항목\n - 두 번째 항목"),
@@ -121,7 +122,7 @@ test("keeps incomplete source text in the source-correction path", () => {
     "링크에 http 또는 https 주소를 입력해 주세요.",
     "지원대상을 입력해 주세요.",
     "지원내용을 입력해 주세요.",
-    "지원기간을 n~n월 형식으로 확인해 주세요.",
+    "지원기간을 MM~MM 형식으로 확인해 주세요.",
     "지원금액을 n만원, n백만원 또는 n억원 형식으로 입력해 주세요.",
   ]);
 });
@@ -136,14 +137,14 @@ test("keeps the upper-industry tag list compact and unique", () => {
   assert.ok(REGION_OPTIONS.includes("전국"));
 });
 
-test("classifies support programs into two upper-industry tags", () => {
+test("classifies support programs into one upper-industry tag", () => {
   const industries = inferIndustries({
     title: "2026년 AI 영상분석 시스템 사업화 지원",
     target: "정보통신 소프트웨어 중소기업",
     details: "기술 고도화와 마케팅 비용 지원",
     industries: ["기술", "마케팅"],
   });
-  assert.equal(industries.length, 2);
+  assert.equal(industries.length, 1);
   assert.ok(industries.includes("AI·디지털"));
   assert.equal(industries.some((tag) => NON_INDUSTRY_OPTIONS.includes(tag)), false);
 });
@@ -183,6 +184,42 @@ test("groups region filters under the 17 first-level administrative divisions", 
   assert.deepEqual(grouped.ungrouped, ["호남", "서해"]);
 });
 
+test("normalizes only explicit catalog bullet separators", () => {
+  assert.equal(
+    formatCatalogBulletText("  startup business - women-owned business - export candidate  "),
+    "startup business - women-owned business - export candidate",
+  );
+  assert.equal(formatCatalogBulletText("Support cap is 100m KRW; apply once yearly"), "Support cap is 100m KRW; apply once yearly");
+  assert.equal(formatCatalogBulletText("Startup 3 years - 7 years old business"), "Startup 3 years - 7 years old business");
+  assert.equal(formatCatalogBulletText("Seoul or Busan business - women-owned business - export candidate"), "Seoul or Busan business - women-owned business - export candidate");
+  assert.equal(formatCatalogBulletText("• diagnosis\n• consulting"), "- diagnosis\n- consulting");
+  assert.equal(formatCatalogBulletText("\r\n first item\r\n\r\n second item \r\n"), "first item\nsecond item");
+});
+
+test("normalizes catalog payload text without changing a roadmap copy", () => {
+  const payload = catalogPayload({
+    category: "business", title: "Program", link: "https://example.test", amountKrw: null, startMonth: 1, endMonth: 1,
+    target: "business - youth business - women-owned business", details: "diagnosis - consulting - mentoring", industries: [], regions: [], mainPackage: false,
+  });
+  assert.equal(payload.target, "business - youth business - women-owned business");
+  assert.equal(payload.details, "diagnosis - consulting - mentoring");
+  const copy = copyCatalogProgram({ ...payload, id: "catalog-1" }, 1, () => "roadmap-1");
+  assert.equal(copy.target, payload.target);
+  assert.equal(copy.details, payload.details);
+});
+
+test("classifies safe rewrites and ambiguous prose conservatively", () => {
+  assert.deepEqual(classifyCatalogReadability("• business\n• youth business"), {
+    kind: "safe-rewrite", value: "- business\n- youth business",
+  });
+  assert.deepEqual(classifyCatalogReadability("Support cap is 100m KRW; apply once yearly"), {
+    kind: "ambiguous-keep-prose", value: "Support cap is 100m KRW; apply once yearly",
+  });
+  assert.deepEqual(classifyCatalogReadability("\r\n business \r\n"), {
+    kind: "whitespace-only", value: "business",
+  });
+});
+
 test("copies a catalog master into an independent roadmap program", () => {
   const master = {
     id: "master-1",
@@ -200,6 +237,7 @@ test("copies a catalog master into an independent roadmap program", () => {
   assert.equal(copy.id, "roadmap-copy-1");
   assert.notEqual(copy.id, master.id);
   assert.equal(copy.sequence, 4);
+  assert.equal("supportYear" in copy, false);
   copy.title = "클라이언트용 수정";
   assert.equal(master.title, "원본 사업");
 });
