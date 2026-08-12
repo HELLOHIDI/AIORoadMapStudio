@@ -102,4 +102,15 @@ historical export QA result: passed
 - Iteration history: pass 1 found that the category dialog remained open after selection because the app's `document` state shadows the browser global. Replaced that imperative close with the native `popoverTargetAction="hide"` contract. Pass 2 verified the dialog closes and the new result set renders without new console errors.
 - P0/P1/P2 findings after pass 2: 0.
 
+## Catalog filter polish QA (2026-08-12)
+
+- Source visual truth: `.omx/audits/filter-polish-20260812/source-industry-spacing.png` (655 x 466px) and `source-month-track.png` (387 x 97px), supplied by the user.
+- Implementation evidence: `.omx/audits/filter-polish-20260812/01-industry-spacing.png` (612 x 463px, 625 x 473 CSS viewport before browser capture scaling) and `02-month-range.png` (388 x 193px, 402 x 200 CSS viewport before browser capture scaling), device scale factor 1.
+- State: saved roadmap → `사업 카탈로그`; industry popover open with no selection; month range set by keyboard to `3–8월`.
+- Full-view comparison: both source and implementation pairs were opened together. The existing AIO visual system remains unchanged outside the two requested details.
+- Focused comparison: the industry legend-to-empty-state gap measures 6px after the fix. Both slider inputs now share the fixed native `1–12` scale; their 18px thumbs and the custom track use the same 9px endpoint inset. At `3–8월`, the computed gradient stops are 18.1818% and 63.6364%, visibly meeting the two handle centers with gray track outside.
+- Fidelity surfaces: typography, colors, radii, copy, and existing assets are unchanged; spacing rhythm and selected-track geometry now match the requested corrections.
+- Interaction evidence: both month handles remain keyboard operable; `Home`/arrow/`End` interaction produced a valid `3–8월` state and updated the result period. The industry popover opens normally with the empty state and search/options visible.
+- Iteration history: pass 1 reproduced the cramped 0px legend/empty-state gap and misaligned selected track caused by dynamic per-input `min`/`max` scales. The fix added a 6px empty-state top margin, gave both sliders the same `1–12` scale, and inset the visual track by half the thumb diameter. Pass 2 found no remaining P0/P1/P2 issue.
+
 final result: passed
