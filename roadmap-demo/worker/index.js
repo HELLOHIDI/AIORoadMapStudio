@@ -19,6 +19,7 @@ const CATALOG_CATEGORIES = new Set(["business", "voucher", "ip", "certification"
 const ROADMAP_TIERS = new Set(["premium", "standard"]);
 const STANDARD_ROADMAP_CATEGORIES = new Set(["consulting", "business", "voucher", "ip"]);
 const FIELDS = new Set(["category", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "industries", "regions", "mainPackage"]);
+const VERIFICATION_FIELDS = new Set(["verified"]);
 const ROADMAP_FIELDS = new Set(["tier", "clientName", "programs"]);
 const ROADMAP_PROGRAM_FIELDS = new Set(["id", "category", "displayCategory", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "sequence", "laneIndex"]);
 const INDUSTRIES = new Set(INDUSTRY_OPTIONS);
@@ -54,6 +55,10 @@ function resourceId(pathname, basePath) {
 
 function cleanString(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function currentKoreaYear(date = new Date()) {
+  return Number(new Intl.DateTimeFormat("en", { timeZone: "Asia/Seoul", year: "numeric" }).format(date));
 }
 
 function includesExcludedFundingTerm(value) {
@@ -469,6 +474,7 @@ function rowToProgram(row) {
     industries: JSON.parse(row.industriesJson),
     regions: JSON.parse(row.regionsJson),
     mainPackage: row.mainPackage === 1 || row.mainPackage === true,
+    verifiedYear: row.verifiedYear ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -484,6 +490,7 @@ const SELECT_FIELDS = `
   industries_json AS industriesJson,
   regions_json AS regionsJson,
   main_package AS mainPackage,
+  verified_year AS verifiedYear,
   created_at AS createdAt,
   updated_at AS updatedAt
 `;
@@ -576,7 +583,7 @@ async function listCatalog(request, db) {
       .first(),
   ]);
 
-  return json({ items: (page.results ?? []).map(rowToProgram), total: count?.total ?? 0, limit, offset });
+  return json({ items: (page.results ?? []).map(rowToProgram), total: count?.total ?? 0, limit, offset, currentYear: currentKoreaYear() });
 }
 
 async function readBody(request) {
@@ -631,6 +638,22 @@ async function updateCatalog(request, db, id) {
     item.target, item.details, JSON.stringify(item.industries), JSON.stringify(item.regions), item.mainPackage ? 1 : 0, timestamp, id).run();
   if (!result.meta?.changes) return apiError(404, "등록된 사업을 찾을 수 없습니다.");
   return json({ item });
+}
+
+async function updateCatalogVerification(request, db, id) {
+  const body = await readBody(request);
+  if (body.error) return apiError(body.status ?? 400, body.error);
+  if (!hasOnlyFields(body.value, VERIFICATION_FIELDS) || typeof body.value.verified !== "boolean") {
+    return apiError(400, "확인 상태를 확인해 주세요.");
+  }
+
+  const currentYear = currentKoreaYear();
+  const verifiedYear = body.value.verified ? currentYear : null;
+  const result = await db.prepare("UPDATE catalog_programs SET verified_year = ? WHERE id = ?")
+    .bind(verifiedYear, id)
+    .run();
+  if (!result.meta?.changes) return apiError(404, "등록된 사업을 찾을 수 없습니다.");
+  return json({ item: { id, verifiedYear }, currentYear });
 }
 
 async function deleteCatalog(db, id) {
@@ -920,7 +943,7 @@ async function handleApi(request, env, pathname) {
   }
   if (!env.DB) return apiError(503, "공유 저장소를 사용할 수 없습니다.");
 
-  if ((["POST", "PUT"].includes(request.method) || (request.method === "PATCH" && feedback))
+  if ((["POST", "PUT"].includes(request.method) || (request.method === "PATCH" && (feedback || isCatalog)))
     && !request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
     return apiError(415, "JSON 형식으로 요청해 주세요.");
   }
@@ -967,6 +990,7 @@ async function handleApi(request, env, pathname) {
     if (isCatalog && pathname === CATALOG_PATH && request.method === "GET") return listCatalog(request, env.DB);
     if (isCatalog && pathname === CATALOG_PATH && request.method === "POST") return createCatalog(request, env.DB);
     if (isCatalog && id && request.method === "PUT") return updateCatalog(request, env.DB, id);
+    if (isCatalog && id && request.method === "PATCH") return updateCatalogVerification(request, env.DB, id);
     if (isCatalog && id && request.method === "DELETE") return deleteCatalog(env.DB, id);
     if (isRoadmap && pathname === ROADMAP_PATH && request.method === "GET") return listRoadmaps(request, env.DB);
     if (isRoadmap && pathname === ROADMAP_PATH && request.method === "POST") return createRoadmap(request, env.DB);

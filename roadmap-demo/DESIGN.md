@@ -19,6 +19,7 @@
 - Goals:
   - Let visitors open, create, explicitly save, and permanently delete shared roadmap drafts.
   - Let users reuse a centrally managed catalog of support programs.
+  - Let staff record that a catalog program was confirmed by phone as continuing in the current Korea year.
   - Let roadmap authors reopen copied catalog details and identify the exact programs omitted by lane capacity.
   - Make selecting a catalog program faster than retyping a roadmap row.
   - Keep catalog masters independent from client-specific roadmap copies.
@@ -28,6 +29,7 @@
   - Personal accounts, named attribution, per-person permissions, or a general approval/moderation platform.
   - Replies, mentions, attachments, notifications, comment editing/deletion, priority, due dates, or real-time collaboration.
   - Automatic notice crawling or metadata extraction.
+  - Treating annual confirmation as an approval gate, warning, filter, sort key, roadmap field, or export content.
   - Site-wide navigation redesign or a new multi-page information architecture.
   - Redesigning the A4 landscape document.
   - Treating exploratory generated images as implementation requirements.
@@ -101,6 +103,7 @@
   - `WorkspaceModeSwitch` for `로드맵 편집` / `사업 카탈로그`.
   - `CatalogToolbar` with keyword, category, business-only subcategory, industry, and region filters plus the secondary `새 사업 등록` action.
   - `CatalogList` and `CatalogRow` using lightweight row separation.
+  - Each catalog row has one reversible `올해 확인` toggle. Its pressed label, `✓ 올해 확인 완료`, is the complete informational marker; no separate badge or workflow is required.
   - `CatalogForm` for explicit create/edit mode, not the catalog default.
   - New-business `CatalogForm` is text-first: one agreed-format textarea, inline source-text errors, then searchable multi-select industry and region tags. A missing industry or region can be added as an immediately persisted public option from its picker. It parses only on registration and never shows a parsed-result review or individual creation fields.
   - Existing-business editing retains the current individual editable fields and tag selectors.
@@ -192,11 +195,12 @@
 
 - Filter UX: use one compact filter bar whose first control is `구분`, followed by `업종`, `지역`, conditional business-subcategory quick chips, the two-handle `1–12월` range, and business-name search. `구분`, `업종`, and `지역` open as light-dismiss overlay dialogs so their option lists never increase page height; the closed controls show the active label or selection count. Business-subcategory chips and month changes update results immediately and reset pagination.
 - Search semantics: `q` is an explicit-submit, case-insensitive substring match against the catalog program title only. Text found only in `지원대상` or `지원내용` must not match.
-- Storage: one D1 table for catalog masters. Do not add browser storage, an external data service, an ORM, or a generic repository layer.
+- Storage: one D1 table for catalog masters. Store nullable `verified_year` separately from program support dates. A row is confirmed only when it equals the Worker-supplied current `Asia/Seoul` year, so the marker expires naturally without an annual reset job or dependence on the browser clock. Do not add browser storage, an external data service, an ORM, or a generic repository layer.
 - API surface:
   - `GET /api/catalog-programs?q=&category=&businessSubcategory=&industry=&region=&limit=&offset=` returns a bounded filtered page and total count. Repeated values use OR within each dimension, and active dimensions combine with AND. `businessSubcategory` is valid only with `category=business`.
   - `POST /api/catalog-programs` creates a master.
   - `PUT /api/catalog-programs/:id` replaces the editable master fields.
+  - `PATCH /api/catalog-programs/:id` accepts only `{ "verified": boolean }`; the Worker owns the Korea-year value and clears it on `false`.
   - `DELETE /api/catalog-programs/:id` deletes only the master.
   - `GET /api/catalog-options` returns shared industry and region choices.
   - `POST /api/catalog-options` immediately creates one shared industry or region choice.
@@ -208,6 +212,7 @@
 - Concurrency: use normal request-level last-write-wins semantics for this unauthenticated MVP. Return explicit not-found, validation, and server errors; do not add conflict-resolution UI.
 - Initialization: keep the schema and one idempotent KIMST/SCCEI seed migration in the repository. Do not create production resources or credentials from application code.
 - Failure isolation: failed catalog reads or writes must leave the current in-memory roadmap document untouched.
+- Annual verification boundary: confirmation is a public manual catalog-master write after a staff phone call. It must not change `updated_at`, catalog ordering, roadmap copies, PDF/PPTX output, or any eligibility behavior. No confirmer identity, evidence, history, authentication, batch reset, warning, blocking, filtering, or sorting is part of this feature.
 
 ## Saved roadmap data and API policy
 

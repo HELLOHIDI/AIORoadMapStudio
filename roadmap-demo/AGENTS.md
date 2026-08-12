@@ -80,6 +80,13 @@ Build app UI in `src/`. Preserve the Sites packaging and static-fallback contrac
 - Catalog controls and status must never appear in print or alter the A4 output contract.
 - MVP catalog writes are shared and unauthenticated by explicit product decision. Keep API validation and visible failure handling; defer login, roles, approval, moderation, and feedback.
 
+## Annual catalog verification contract
+
+- A staff member may toggle `올해 확인` only after confirming by phone that the catalog program continues this year. This records continuation only; schedule and details may still be unknown.
+- Store a nullable verification year on the catalog master and compare it with the current `Asia/Seoul` year. Do not add a reset job; a prior-year value simply renders as unconfirmed.
+- Keep the marker informational and reversible. It must not warn, block, hide, filter, sort, reorder, or alter roadmap selection.
+- Do not copy verification into roadmap programs or expose it in PDF/PPTX output. Do not add identity, evidence, history, authentication, or approval workflow without a new explicit product decision.
+
 ## Government support-program ingestion contract
 
 - This is the binding policy for the next full catalog ingestion. Do not treat the prior 10-minute crawl as a resumable production run; restart from row 1 after re-filtering the source workbook.
