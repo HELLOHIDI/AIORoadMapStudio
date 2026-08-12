@@ -306,7 +306,43 @@ function FieldError({ errors, name }) {
   return errors?.[name] ? <small className="field-error">{errors[name]}</small> : null;
 }
 
-function TagPicker({ label, options, value = [], onChange, onCreate, collapsible = false, maxSelections }) {
+function FilterPopover({ id, label, summary, className = "", children }) {
+  return (
+    <div className="catalog-filter-control">
+      <button type="button" className="catalog-filter-trigger" popoverTarget={id} aria-haspopup="dialog">
+        <span>{label}</span>
+        <strong>{summary}</strong>
+      </button>
+      <div id={id} className={`catalog-filter-popover ${className}`} popover="auto" role="dialog" aria-label={`${label} 필터`}>
+        <button type="button" className="catalog-filter-popover__close" popoverTarget={id} popoverTargetAction="hide">닫기</button>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function MonthRangeFilter({ startMonth, endMonth, onStartChange, onEndChange }) {
+  const start = Number(startMonth);
+  const end = Number(endMonth);
+  const rangeStyle = {
+    "--range-start": `${((start - 1) / 11) * 100}%`,
+    "--range-end": `${((end - 1) / 11) * 100}%`,
+  };
+
+  return (
+    <fieldset className="catalog-month-range">
+      <legend>월</legend>
+      <output aria-live="polite">{start}–{end}월</output>
+      <div className="catalog-month-range__inputs" style={rangeStyle}>
+        <div className="catalog-month-range__track" aria-hidden="true" />
+        <input className={start === end ? "catalog-month-range__start--raised" : undefined} aria-label="조회 시작월" aria-valuetext={`${start}월`} type="range" min="1" max={end} value={start} onChange={(event) => onStartChange(event.target.value)} />
+        <input aria-label="조회 종료월" aria-valuetext={`${end}월`} type="range" min={start} max="12" value={end} onChange={(event) => onEndChange(event.target.value)} />
+      </div>
+    </fieldset>
+  );
+}
+
+function TagPicker({ label, options, value = [], onChange, onCreate, maxSelections }) {
   const [query, setQuery] = useState("");
   const [createState, setCreateState] = useState({ status: "idle", error: "", message: "" });
   const selected = Array.isArray(value) ? value : [];
@@ -329,9 +365,9 @@ function TagPicker({ label, options, value = [], onChange, onCreate, collapsible
     }
   };
 
-  const picker = (
-    <fieldset className="tag-picker" aria-label={collapsible ? `${label} 복수 선택` : undefined}>
-      <legend hidden={collapsible}>{label} <small>복수 선택</small></legend>
+  return (
+    <fieldset className="tag-picker">
+      <legend>{label} <small>복수 선택</small></legend>
       {selected.length ? (
         <div className="tag-picker__selected" aria-label={`선택한 ${label}`}>
           {selected.map((option) => (
@@ -360,17 +396,6 @@ function TagPicker({ label, options, value = [], onChange, onCreate, collapsible
         {!filtered.length ? <p>검색 결과가 없습니다.</p> : null}
       </div>
     </fieldset>
-  );
-
-  if (!collapsible) return picker;
-  return (
-    <details className="tag-picker-disclosure">
-      <summary>
-        <span>{label}</span>
-        <span className="tag-picker-disclosure__count">{selected.length ? `${selected.length}개 선택` : "선택 안 함"}</span>
-      </summary>
-      {picker}
-    </details>
   );
 }
 
@@ -415,12 +440,7 @@ function RegionFilter({ options, value = [], onChange }) {
   );
 
   return (
-    <details className="tag-picker-disclosure region-filter-disclosure">
-      <summary>
-        <span>지역 필터</span>
-        <span className="tag-picker-disclosure__count">{selected.length ? `${selected.length}개 선택` : "선택 안 함"}</span>
-      </summary>
-      <fieldset className="tag-picker region-filter" aria-label="대한민국 행정구역별 지역 필터">
+    <fieldset className="tag-picker region-filter" aria-label="대한민국 행정구역별 지역 필터">
         {selected.length ? (
           <div className="tag-picker__selected" aria-label="선택한 지역 필터">
             {selected.map((option) => (
@@ -465,8 +485,7 @@ function RegionFilter({ options, value = [], onChange }) {
             </div>
           </>
         )}
-      </fieldset>
-    </details>
+    </fieldset>
   );
 }
 
@@ -1397,10 +1416,10 @@ export function App() {
   const canGoBack = catalogOffset > 0;
   const canGoForward = catalogOffset + catalog.items.length < catalog.total;
   const catalogPeriodChanged = catalogStartMonth !== "1" || catalogEndMonth !== "12";
-  const catalogPeriodLabel = catalogPeriodChanged
-    ? formatCatalogPeriod({ startMonth: catalogStartMonth, endMonth: catalogEndMonth })
-    : "전체 기간";
-  const hasCatalogFilters = Boolean(catalogQuery || catalogPeriodChanged || catalogIndustries.length || catalogRegions.length || catalogBusinessSubcategories.length);
+  const catalogPeriodLabel = `${catalogStartMonth}–${catalogEndMonth}월`;
+  const catalogCategoryLabel = catalogCategories.find(({ key }) => key === catalogCategory)?.label ?? "전체";
+  const filterSummary = (values) => values.length === 1 ? values[0] : values.length ? `${values.length}개 선택` : "전체";
+  const hasCatalogFilters = Boolean(catalogCategory !== firstCatalogCategory || catalogQuery || catalogPeriodChanged || catalogIndustries.length || catalogRegions.length || catalogBusinessSubcategories.length);
   const activePrograms = document.programs.filter((program) => program.category === activeCategory && allowedCategoryKeys.has(program.category));
   const draggingProgram = document.programs.find((program) => program.id === draggingProgramId);
 
@@ -1622,85 +1641,88 @@ export function App() {
             />
           ) : (
             <>
-              <form className="catalog-toolbar" onSubmit={(event) => {
-                event.preventDefault();
-                const nextQuery = catalogSearch.trim();
-                setCatalogOffset(0);
-                if (nextQuery === catalogQuery) setCatalogRefresh((current) => current + 1);
-                else setCatalogQuery(nextQuery);
-              }}>
-                <label>
-                  <span>사업 검색</span>
-                  <input type="search" value={catalogSearch} onChange={(event) => setCatalogSearch(event.target.value)} placeholder="사업명, 지원대상, 지원내용" />
-                </label>
-                <label className="catalog-toolbar__month">
-                  <span>시작월</span>
-                  <select value={catalogStartMonth} onChange={(event) => {
-                    const next = Number(event.target.value);
-                    setCatalogStartMonth(String(next));
-                    if (next > Number(catalogEndMonth)) setCatalogEndMonth(String(next));
-                    setCatalogOffset(0);
-                  }}>
-                    {months.map((month, index) => <option key={month} value={index + 1}>{month}</option>)}
-                  </select>
-                </label>
-                <label className="catalog-toolbar__month">
-                  <span>종료월</span>
-                  <select value={catalogEndMonth} onChange={(event) => {
-                    const next = Number(event.target.value);
-                    setCatalogEndMonth(String(next));
-                    if (next < Number(catalogStartMonth)) setCatalogStartMonth(String(next));
-                    setCatalogOffset(0);
-                  }}>
-                    {months.map((month, index) => <option key={month} value={index + 1}>{month}</option>)}
-                  </select>
-                </label>
-                <button type="submit" className="button-secondary">검색</button>
-              </form>
-              <nav className="category-tabs catalog-category-tabs" aria-label="사업 카탈로그 구분">
-                {catalogCategories.map(({ key, label }) => (
-                  <button type="button" key={key} aria-pressed={catalogCategory === key} onClick={() => {
-                    setCatalogCategory(key);
-                    if (key !== "business") setCatalogBusinessSubcategories([]);
-                    setCatalogOffset(0);
-                  }}>{label}</button>
-                ))}
-              </nav>
-
-              <section className="catalog-filters" aria-label="세부 분류, 업종 및 지역 필터">
+              <section className="catalog-filter-bar" aria-label="사업 카탈로그 필터">
+                <div className="catalog-filter-bar__controls">
+                  <FilterPopover id="catalog-category-filter" label="구분" summary={catalogCategoryLabel} className="catalog-filter-popover--compact">
+                    <fieldset className="catalog-filter-options">
+                      <legend>구분</legend>
+                      {catalogCategories.map(({ key, label }) => (
+                        <button type="button" key={key} aria-pressed={catalogCategory === key} popoverTarget="catalog-category-filter" popoverTargetAction="hide" onClick={() => {
+                          setCatalogCategory(key);
+                          if (key !== "business") setCatalogBusinessSubcategories([]);
+                          setCatalogOffset(0);
+                        }}>{label}</button>
+                      ))}
+                    </fieldset>
+                  </FilterPopover>
+                  <FilterPopover id="catalog-industry-filter" label="업종" summary={filterSummary(catalogIndustries)}>
+                    <TagPicker label="업종" options={catalogOptions.industries} value={catalogIndustries} onChange={(next) => {
+                      setCatalogIndustries(next);
+                      setCatalogOffset(0);
+                    }} />
+                  </FilterPopover>
+                  <FilterPopover id="catalog-region-filter" label="지역" summary={filterSummary(catalogRegions)} className="catalog-filter-popover--wide">
+                    <RegionFilter options={catalogOptions.regions} value={catalogRegions} onChange={(next) => {
+                      setCatalogRegions(next);
+                      setCatalogOffset(0);
+                    }} />
+                  </FilterPopover>
                 {catalogCategory === "business" ? (
-                  <TagPicker collapsible label="사업화 세부 분류" options={BUSINESS_SUBCATEGORY_OPTIONS} value={catalogBusinessSubcategories} onChange={(next) => {
-                    setCatalogBusinessSubcategories(next);
-                    setCatalogOffset(0);
-                  }} />
+                    <div className="catalog-quick-filters" role="group" aria-label="사업화 세부 분류">
+                      <span>사업화 세부 분류</span>
+                      {BUSINESS_SUBCATEGORY_OPTIONS.map((option) => (
+                        <button type="button" key={option} aria-pressed={catalogBusinessSubcategories.includes(option)} onClick={() => {
+                          setCatalogBusinessSubcategories((current) => current.includes(option)
+                            ? current.filter((item) => item !== option)
+                            : [...current, option]);
+                          setCatalogOffset(0);
+                        }}>{option}</button>
+                      ))}
+                    </div>
                 ) : null}
-                <TagPicker collapsible label="업종 필터" options={catalogOptions.industries} value={catalogIndustries} onChange={(next) => {
-                  setCatalogIndustries(next);
-                  setCatalogOffset(0);
-                }} />
-                <RegionFilter options={catalogOptions.regions} value={catalogRegions} onChange={(next) => {
-                  setCatalogRegions(next);
-                  setCatalogOffset(0);
-                }} />
-              </section>
-              {hasCatalogFilters ? (
-                <div className="catalog-filter-actions">
-                  <span>{catalogPeriodLabel} 포함 사업을 찾습니다.</span>
-                  <button type="button" className="button-tertiary" onClick={() => {
-                    setCatalogSearch("");
-                    setCatalogQuery("");
-                    setCatalogStartMonth("1");
-                    setCatalogEndMonth("12");
-                    setCatalogBusinessSubcategories([]);
-                    setCatalogIndustries([]);
-                    setCatalogRegions([]);
+                  <MonthRangeFilter
+                    startMonth={catalogStartMonth}
+                    endMonth={catalogEndMonth}
+                    onStartChange={(value) => {
+                      setCatalogStartMonth(String(Math.min(Number(value), Number(catalogEndMonth))));
+                      setCatalogOffset(0);
+                    }}
+                    onEndChange={(value) => {
+                      setCatalogEndMonth(String(Math.max(Number(value), Number(catalogStartMonth))));
+                      setCatalogOffset(0);
+                    }}
+                  />
+                  <form className="catalog-search" role="search" onSubmit={(event) => {
+                    event.preventDefault();
+                    const nextQuery = catalogSearch.trim();
                     setCatalogOffset(0);
-                  }}>검색·필터 초기화</button>
+                    if (nextQuery === catalogQuery) setCatalogRefresh((current) => current + 1);
+                    else setCatalogQuery(nextQuery);
+                  }}>
+                    <label>
+                      <span>사업명 검색</span>
+                      <input type="search" value={catalogSearch} onChange={(event) => setCatalogSearch(event.target.value)} placeholder="사업명 검색" />
+                    </label>
+                    <button type="submit" className="button-secondary">검색</button>
+                  </form>
                 </div>
-              ) : null}
-              <p className="catalog-filter-status" role="status">
-                조회 기간 {catalogPeriodLabel}
-              </p>
+                <div className="catalog-filter-bar__footer">
+                  <p className="catalog-filter-status" role="status">조회 기간 {catalogPeriodLabel}</p>
+                  {hasCatalogFilters ? (
+                    <button type="button" className="button-tertiary" onClick={() => {
+                      setCatalogSearch("");
+                      setCatalogQuery("");
+                      setCatalogCategory(firstCatalogCategory);
+                      setCatalogStartMonth("1");
+                      setCatalogEndMonth("12");
+                      setCatalogBusinessSubcategories([]);
+                      setCatalogIndustries([]);
+                      setCatalogRegions([]);
+                      setCatalogOffset(0);
+                    }}>검색·필터 초기화</button>
+                  ) : null}
+                </div>
+              </section>
 
               {catalogOptions.error ? <p className="catalog-notice catalog-notice--error" role="alert">{catalogOptions.error}</p> : null}
 

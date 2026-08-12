@@ -25,6 +25,7 @@ const INDUSTRIES = new Set(INDUSTRY_OPTIONS);
 const NON_INDUSTRIES = new Set(NON_INDUSTRY_OPTIONS);
 const REGIONS = new Set(REGION_OPTIONS);
 const BUSINESS_SUBCATEGORIES = new Set(BUSINESS_SUBCATEGORY_OPTIONS);
+const EXCLUDED_FUNDING_TERMS = ["육성자금", "운전자금"];
 const INVALID_REGIONS = new Set(LEGACY_INVALID_REGION_OPTIONS);
 const OPTION_KINDS = new Set(["region"]);
 const MAX_BODY_BYTES = 500_000;
@@ -53,6 +54,11 @@ function resourceId(pathname, basePath) {
 
 function cleanString(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function includesExcludedFundingTerm(value) {
+  const compact = value.replace(/\s+/gu, "");
+  return EXCLUDED_FUNDING_TERMS.some((term) => compact.includes(term));
 }
 
 function cleanFeedbackText(value) {
@@ -311,6 +317,7 @@ function validateCatalogProgramWithOptions(input, options) {
 
   if (!CATALOG_CATEGORIES.has(value.category)) fields.category = "사업 카탈로그에서 지원하지 않는 구분입니다.";
   if (!value.title || value.title.length > 240) fields.title = "사업명은 1~240자로 입력해 주세요.";
+  if (includesExcludedFundingTerm(value.title)) fields.title = "육성자금·운전자금 사업은 등록할 수 없습니다.";
   try {
     const url = new URL(value.link);
     if (!["http:", "https:"].includes(url.protocol)) throw new Error("protocol");
@@ -328,6 +335,7 @@ function validateCatalogProgramWithOptions(input, options) {
   }
   if (!value.target || value.target.length > 1000) fields.target = "지원대상은 1~1,000자로 입력해 주세요.";
   if (!value.details || value.details.length > 4000) fields.details = "지원내용은 1~4,000자로 입력해 주세요.";
+  if (includesExcludedFundingTerm(value.details)) fields.details = "육성자금·운전자금 사업은 등록할 수 없습니다.";
   if (value.industries.length !== 1) fields.industries = "업종은 하나만 선택해 주세요.";
   if (typeof value.mainPackage !== "boolean") fields.mainPackage = "메인패키지 지정 여부를 확인해 주세요.";
   if (value.category !== "business" && value.mainPackage) fields.mainPackage = "메인패키지는 사업화 사업에만 지정할 수 있습니다.";
@@ -512,8 +520,8 @@ async function listCatalog(request, db) {
     return apiError(400, "카탈로그 필터를 확인해 주세요.");
   }
   if (q) {
-    filters.push("(title LIKE ? OR target LIKE ? OR details LIKE ?)");
-    searchParams.push(`%${q}%`, `%${q}%`, `%${q}%`);
+    filters.push("title LIKE ?");
+    searchParams.push(`%${q}%`);
   }
   if (CATALOG_CATEGORIES.has(category)) {
     filters.push("category = ?");

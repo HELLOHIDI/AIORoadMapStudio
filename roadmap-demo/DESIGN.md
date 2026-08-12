@@ -190,6 +190,8 @@
 
 ## Catalog data and API policy
 
+- Filter UX: use one compact filter bar whose first control is `구분`, followed by `업종`, `지역`, conditional business-subcategory quick chips, the two-handle `1–12월` range, and business-name search. `구분`, `업종`, and `지역` open as light-dismiss overlay dialogs so their option lists never increase page height; the closed controls show the active label or selection count. Business-subcategory chips and month changes update results immediately and reset pagination.
+- Search semantics: `q` is an explicit-submit, case-insensitive substring match against the catalog program title only. Text found only in `지원대상` or `지원내용` must not match.
 - Storage: one D1 table for catalog masters. Do not add browser storage, an external data service, an ORM, or a generic repository layer.
 - API surface:
   - `GET /api/catalog-programs?q=&category=&businessSubcategory=&industry=&region=&limit=&offset=` returns a bounded filtered page and total count. Repeated values use OR within each dimension, and active dimensions combine with AND. `businessSubcategory` is valid only with `category=business`.

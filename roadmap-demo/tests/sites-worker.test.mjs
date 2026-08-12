@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 import { BUSINESS_SUBCATEGORY_OPTIONS, INDUSTRY_OPTIONS, REGION_OPTIONS, inferBusinessSubcategories } from "../catalog-options.js";
-import worker from "../worker/index.js";
+import worker, { validateCatalogProgram } from "../worker/index.js";
 
 test("serves existing static assets without a fallback", async () => {
   const calls = [];
@@ -75,9 +75,8 @@ function createDatabase() {
   const statementByteLengths = [];
   const filterRows = (statement, params) => {
     let index = 0;
-    const hasSearch = statement.includes("(title LIKE ? OR target LIKE ? OR details LIKE ?)");
+    const hasSearch = statement.includes("title LIKE ?");
     const query = hasSearch ? String(params[index++]).slice(1, -1).toLowerCase() : "";
-    if (hasSearch) index += 2;
     const hasCategory = statement.includes("category = ?");
     const category = hasCategory ? params[index++] : "";
     const hasMonthRange = statement.includes("start_month <= ? AND end_month >= ?");
@@ -93,8 +92,7 @@ function createDatabase() {
     const businessSubcategories = BUSINESS_SUBCATEGORY_OPTIONS.filter((tag) => statement.includes(`business-subcategory:${tag}`));
 
     return rows
-      .filter((row) => !query || [row.title, row.target, row.details]
-        .some((value) => value.toLowerCase().includes(query)))
+      .filter((row) => !query || row.title.toLowerCase().includes(query))
       .filter((row) => !category || row.category === category)
       .filter((row) => !hasMonthRange || (row.startMonth <= endMonth && row.endMonth >= startMonth))
       .filter((row) => !industries.length || JSON.parse(row.industriesJson).some((value) => industries.includes(value)))
@@ -242,6 +240,17 @@ const catalogInput = {
   regions: ["서울", "부산"],
   mainPackage: false,
 };
+
+test("rejects excluded funding terms in program names and support details", () => {
+  assert.equal(
+    validateCatalogProgram({ ...catalogInput, title: "중소기업 운전 자금 지원" }).fields.title,
+    "육성자금·운전자금 사업은 등록할 수 없습니다.",
+  );
+  assert.equal(
+    validateCatalogProgram({ ...catalogInput, details: "지역기업 육성\n자금 지원" }).fields.details,
+    "육성자금·운전자금 사업은 등록할 수 없습니다.",
+  );
+});
 
 test("validates and persists catalog CRUD through D1", async () => {
   const DB = createDatabase();
@@ -483,6 +492,36 @@ test("filters catalog tags with OR within dimensions and AND before pagination",
 
   const tooManyFilters = await request(`/api/catalog-programs?${Array.from({ length: 21 }, (_, index) => `industry=i${index}`).join("&")}`);
   assert.equal(tooManyFilters.status, 400);
+});
+
+test("searches catalog program titles only", async () => {
+  const DB = createDatabase();
+  const row = (id, title, target, details) => ({
+    id,
+    category: "business",
+    title,
+    link: "https://example.test",
+    amountKrw: 1_000_000,
+    startMonth: 1,
+    endMonth: 12,
+    target,
+    details,
+    industriesJson: "[]",
+    regionsJson: "[]",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
+  DB.rows.push(
+    row("title-match", "AI 사업화", "중소기업", "제품 개발"),
+    row("target-only", "성장 지원", "AI 기업", "판로 지원"),
+    row("details-only", "수출 지원", "중소기업", "AI 솔루션 고도화"),
+  );
+
+  const response = await worker.fetch(new Request("https://example.test/api/catalog-programs?q=AI&limit=50&offset=0"), { DB });
+  const result = await response.json();
+
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.items.map((item) => item.id), ["title-match"]);
 });
 
 test("filters catalog by overlapping months before pagination", async () => {
@@ -767,6 +806,7 @@ test("emits the files required by Sites packaging", async () => {
   await access(new URL("../dist/.openai/drizzle/0001_saved_roadmaps.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0002_catalog_options.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0006_catalog_business_subcategories.sql", import.meta.url));
+  await access(new URL("../dist/.openai/drizzle/0008_catalog_funding_exclusions.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/meta/_journal.json", import.meta.url));
   const migration = await readFile(new URL("../drizzle/0003_saved_roadmaps_tier.sql", import.meta.url), "utf8");
   assert.match(migration, /ADD COLUMN tier TEXT NOT NULL DEFAULT 'premium'/);
@@ -774,6 +814,7 @@ test("emits the files required by Sites packaging", async () => {
   const journal = JSON.parse(await readFile(new URL("../drizzle/meta/_journal.json", import.meta.url), "utf8"));
   assert.equal(journal.entries.filter((entry) => entry.tag === "0003_saved_roadmaps_tier").length, 1);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0006_catalog_business_subcategories").length, 1);
+  assert.equal(journal.entries.filter((entry) => entry.tag === "0008_catalog_funding_exclusions").length, 1);
   const server = await readFile(new URL("../dist/server/index.js", import.meta.url), "utf8");
   assert.deepEqual(server.match(/^export /gm), ["export "]);
 });
