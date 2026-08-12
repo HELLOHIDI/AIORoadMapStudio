@@ -149,6 +149,8 @@ test("keeps shared tag creation and catalog filters wired to the server", () => 
   assert.ok(app.includes('catalogCategory !== firstCatalogCategory'));
   assert.ok(app.includes('setCatalogCategory(firstCatalogCategory)'));
   assert.ok(app.includes('catalog-month-range__start--raised'));
+  assert.match(app, /aria-label="조회 시작월"[^>]*type="range" min="1" max="12"/);
+  assert.match(app, /aria-label="조회 종료월"[^>]*type="range" min="1" max="12"/);
   assert.ok(app.includes('placeholder="사업명 검색"'));
   assert.ok(app.includes('className="catalog-main-package-toggle"'));
   assert.ok(app.includes("program.businessSubcategories?.length"));
@@ -160,6 +162,8 @@ test("keeps shared tag creation and catalog filters wired to the server", () => 
   assert.match(styles, /\.catalog-filter-status\s*\{/);
   assert.match(styles, /\.catalog-filter-popover::backdrop\s*\{/);
   assert.match(styles, /\.catalog-month-range__track\s*\{/);
+  assert.match(styles, /\.catalog-month-range__track\s*\{[\s\S]*?right:\s*9px;[\s\S]*?left:\s*9px;/);
+  assert.match(styles, /\.tag-picker__empty\s*\{[\s\S]*?margin:\s*6px 0 9px;/);
   assert.match(styles, /\.tag-picker__create\s*\{/);
   assert.match(styles, /\.region-filter__groups\s*\{/);
 });

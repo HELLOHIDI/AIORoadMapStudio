@@ -335,8 +335,8 @@ function MonthRangeFilter({ startMonth, endMonth, onStartChange, onEndChange }) 
       <output aria-live="polite">{start}–{end}월</output>
       <div className="catalog-month-range__inputs" style={rangeStyle}>
         <div className="catalog-month-range__track" aria-hidden="true" />
-        <input className={start === end ? "catalog-month-range__start--raised" : undefined} aria-label="조회 시작월" aria-valuetext={`${start}월`} type="range" min="1" max={end} value={start} onChange={(event) => onStartChange(event.target.value)} />
-        <input aria-label="조회 종료월" aria-valuetext={`${end}월`} type="range" min={start} max="12" value={end} onChange={(event) => onEndChange(event.target.value)} />
+        <input className={start === end ? "catalog-month-range__start--raised" : undefined} aria-label="조회 시작월" aria-valuetext={`${start}월`} type="range" min="1" max="12" value={start} onChange={(event) => onStartChange(event.target.value)} />
+        <input aria-label="조회 종료월" aria-valuetext={`${end}월`} type="range" min="1" max="12" value={end} onChange={(event) => onEndChange(event.target.value)} />
       </div>
     </fieldset>
   );
