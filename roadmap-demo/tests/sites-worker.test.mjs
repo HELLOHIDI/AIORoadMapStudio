@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 import { BUSINESS_SUBCATEGORY_OPTIONS, INDUSTRY_OPTIONS, REGION_OPTIONS, inferBusinessSubcategories } from "../catalog-options.js";
-import worker from "../worker/index.js";
+import worker, { validateCatalogProgram } from "../worker/index.js";
 
 test("serves existing static assets without a fallback", async () => {
   const calls = [];
@@ -242,6 +242,17 @@ const catalogInput = {
   regions: ["서울", "부산"],
   mainPackage: false,
 };
+
+test("rejects excluded funding terms in program names and support details", () => {
+  assert.equal(
+    validateCatalogProgram({ ...catalogInput, title: "중소기업 운전 자금 지원" }).fields.title,
+    "육성자금·운전자금 사업은 등록할 수 없습니다.",
+  );
+  assert.equal(
+    validateCatalogProgram({ ...catalogInput, details: "지역기업 육성\n자금 지원" }).fields.details,
+    "육성자금·운전자금 사업은 등록할 수 없습니다.",
+  );
+});
 
 test("validates and persists catalog CRUD through D1", async () => {
   const DB = createDatabase();
@@ -767,6 +778,7 @@ test("emits the files required by Sites packaging", async () => {
   await access(new URL("../dist/.openai/drizzle/0001_saved_roadmaps.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0002_catalog_options.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0006_catalog_business_subcategories.sql", import.meta.url));
+  await access(new URL("../dist/.openai/drizzle/0008_catalog_funding_exclusions.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/meta/_journal.json", import.meta.url));
   const migration = await readFile(new URL("../drizzle/0003_saved_roadmaps_tier.sql", import.meta.url), "utf8");
   assert.match(migration, /ADD COLUMN tier TEXT NOT NULL DEFAULT 'premium'/);
@@ -774,6 +786,7 @@ test("emits the files required by Sites packaging", async () => {
   const journal = JSON.parse(await readFile(new URL("../drizzle/meta/_journal.json", import.meta.url), "utf8"));
   assert.equal(journal.entries.filter((entry) => entry.tag === "0003_saved_roadmaps_tier").length, 1);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0006_catalog_business_subcategories").length, 1);
+  assert.equal(journal.entries.filter((entry) => entry.tag === "0008_catalog_funding_exclusions").length, 1);
   const server = await readFile(new URL("../dist/server/index.js", import.meta.url), "utf8");
   assert.deepEqual(server.match(/^export /gm), ["export "]);
 });

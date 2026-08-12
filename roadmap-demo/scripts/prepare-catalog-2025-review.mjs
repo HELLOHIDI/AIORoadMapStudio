@@ -14,6 +14,7 @@ const VOUCHER_TERMS = /바우처|voucher|크레딧|credit|포인트|point|쿠폰
 const EMPLOYMENT_TERMS = /채용|고용|일자리|임금|인건비|근로자|취업/u;
 const EMPLOYMENT_SUPPORT = /지원|장려|보조/u;
 const BANNED_TITLE_TERMS = ["보증", "연장", "추가모집", "주관기관모집", "융자", "통합공고"];
+const EXCLUDED_FUNDING_TERMS = ["육성자금", "운전자금"];
 
 const unescapeXml = (value = "") => value.replace(/<[^>]+>/g, "").replace(/&(?:amp|lt|gt|quot|apos);/g, (entity) => ({ "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'" })[entity]);
 const columnIndex = (reference) => [...reference.match(/^([A-Z]+)/)?.[1] ?? ""].reduce((total, letter) => total * 26 + letter.charCodeAt(0) - 64, 0) - 1;
@@ -64,6 +65,7 @@ function sourceToPayload(row) {
   if (startYear !== endYear || Number(startMonth) > Number(endMonth)) return { skip: "cross-year-or-reversed-period" };
   const compactTitle = normalized(title);
   if (BANNED_TITLE_TERMS.some((term) => compactTitle.includes(term))) return { skip: "excluded-title" };
+  if (EXCLUDED_FUNDING_TERMS.some((term) => compactTitle.includes(term) || normalized(details).includes(term))) return { skip: "excluded-funding-term" };
   if (compactTitle.includes("2024년")) return { skip: "excluded-2024-notice" };
   if (EMPLOYMENT_TERMS.test(title) && EMPLOYMENT_SUPPORT.test(title)) return { skip: "direct-employment-support" };
   const text = `${title}\n${target}\n${details}`;
