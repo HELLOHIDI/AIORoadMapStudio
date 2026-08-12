@@ -520,8 +520,8 @@ async function listCatalog(request, db) {
     return apiError(400, "카탈로그 필터를 확인해 주세요.");
   }
   if (q) {
-    filters.push("(title LIKE ? OR target LIKE ? OR details LIKE ?)");
-    searchParams.push(`%${q}%`, `%${q}%`, `%${q}%`);
+    filters.push("title LIKE ?");
+    searchParams.push(`%${q}%`);
   }
   if (CATALOG_CATEGORIES.has(category)) {
     filters.push("category = ?");

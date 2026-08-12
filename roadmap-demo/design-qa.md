@@ -89,4 +89,17 @@ historical export QA result: passed
 - Automated evidence: `npm.cmd run test` (59 passed), `npm.cmd run build` (passed), `npm.cmd run test:sites` (9 passed), and `npm.cmd run verify:pptx` (passed).
 - Separate export limitation: PDF verification is blocked before rendering because managed Chrome 151.0.7922.108 does not meet the repository-pinned major 150 policy.
 
+## Wanted-style catalog filter QA (2026-08-12)
+
+- Source of truth: `.omx/audits/wanted-filter-reference-20260812/01-default-filter-bar.png` (Wanted default filter bar, 1521 x 688px).
+- Implementation capture: `.omx/audits/wanted-filter-implementation-20260812/01-desktop-filter-bar.png` (AIO catalog default filter state, 1521 x 688px).
+- Responsive captures: `.omx/audits/wanted-filter-implementation-20260812/02-mobile-filter-bar.png` and `03-mobile-region-popover.png`, captured with a 390 x 844 browser viewport override.
+- Compared state: saved Premium roadmap → `사업 카탈로그` → `구분=사업화`, no active tags, full `1–12월` period, blank business-name query, populated catalog results.
+- Full comparison: the reference and implementation desktop captures were inspected together at the same dimensions. The implementation preserves the existing AIO chrome and tokens while matching the reference interaction grammar: one compact horizontal filter surface, visible selected state, quick chips, and overlay option surfaces.
+- Focused comparison: category and region overlays were opened on desktop and mobile. Both remain in the top layer, use a dimmed backdrop, fit within the viewport, and do not change document height.
+- Interaction evidence: category selection applies and closes its overlay; industry and region selections update the closed-control summary; Escape dismisses overlays; business-subcategory chips update results immediately; the month inputs remain keyboard operable and clamp at `12–12월`; target/details-only search text does not match while a title substring does.
+- Responsive/accessibility evidence: desktop and 390px layouts have no horizontal document overflow; labels, fieldsets, pressed states, dialog roles, slider names/value text, visible focus, and practical touch targets are present.
+- Iteration history: pass 1 found that the category dialog remained open after selection because the app's `document` state shadows the browser global. Replaced that imperative close with the native `popoverTargetAction="hide"` contract. Pass 2 verified the dialog closes and the new result set renders without new console errors.
+- P0/P1/P2 findings after pass 2: 0.
+
 final result: passed

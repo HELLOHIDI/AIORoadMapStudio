@@ -75,9 +75,8 @@ function createDatabase() {
   const statementByteLengths = [];
   const filterRows = (statement, params) => {
     let index = 0;
-    const hasSearch = statement.includes("(title LIKE ? OR target LIKE ? OR details LIKE ?)");
+    const hasSearch = statement.includes("title LIKE ?");
     const query = hasSearch ? String(params[index++]).slice(1, -1).toLowerCase() : "";
-    if (hasSearch) index += 2;
     const hasCategory = statement.includes("category = ?");
     const category = hasCategory ? params[index++] : "";
     const hasMonthRange = statement.includes("start_month <= ? AND end_month >= ?");
@@ -93,8 +92,7 @@ function createDatabase() {
     const businessSubcategories = BUSINESS_SUBCATEGORY_OPTIONS.filter((tag) => statement.includes(`business-subcategory:${tag}`));
 
     return rows
-      .filter((row) => !query || [row.title, row.target, row.details]
-        .some((value) => value.toLowerCase().includes(query)))
+      .filter((row) => !query || row.title.toLowerCase().includes(query))
       .filter((row) => !category || row.category === category)
       .filter((row) => !hasMonthRange || (row.startMonth <= endMonth && row.endMonth >= startMonth))
       .filter((row) => !industries.length || JSON.parse(row.industriesJson).some((value) => industries.includes(value)))
@@ -494,6 +492,36 @@ test("filters catalog tags with OR within dimensions and AND before pagination",
 
   const tooManyFilters = await request(`/api/catalog-programs?${Array.from({ length: 21 }, (_, index) => `industry=i${index}`).join("&")}`);
   assert.equal(tooManyFilters.status, 400);
+});
+
+test("searches catalog program titles only", async () => {
+  const DB = createDatabase();
+  const row = (id, title, target, details) => ({
+    id,
+    category: "business",
+    title,
+    link: "https://example.test",
+    amountKrw: 1_000_000,
+    startMonth: 1,
+    endMonth: 12,
+    target,
+    details,
+    industriesJson: "[]",
+    regionsJson: "[]",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
+  DB.rows.push(
+    row("title-match", "AI 사업화", "중소기업", "제품 개발"),
+    row("target-only", "성장 지원", "AI 기업", "판로 지원"),
+    row("details-only", "수출 지원", "중소기업", "AI 솔루션 고도화"),
+  );
+
+  const response = await worker.fetch(new Request("https://example.test/api/catalog-programs?q=AI&limit=50&offset=0"), { DB });
+  const result = await response.json();
+
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.items.map((item) => item.id), ["title-match"]);
 });
 
 test("filters catalog by overlapping months before pagination", async () => {
