@@ -1036,6 +1036,54 @@ button {
   gap: 7px;
 }
 
+.catalog-verification-toggle {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 2px solid #aeb5c1;
+  border-radius: 50%;
+  color: #fff;
+  background: #fff;
+  cursor: pointer;
+}
+
+.catalog-verification-toggle:hover {
+  border-color: #1f6536;
+  background: #eef8f1;
+}
+
+.catalog-verification-toggle.is-verified {
+  border-color: #1f6536;
+  background: #1f6536;
+}
+
+.catalog-verification-toggle > span {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.catalog-verification-toggle.is-loading > span {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #d7dbe3;
+  border-top-color: #5b9bd5;
+  border-radius: 50%;
+  animation: catalog-verification-spin 700ms linear infinite;
+}
+
+.catalog-verification-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+@keyframes catalog-verification-spin {
+  to { transform: rotate(360deg); }
+}
+
 .catalog-row--roadmap .catalog-row__actions {
   align-self: center;
 }

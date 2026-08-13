@@ -103,7 +103,7 @@
   - `WorkspaceModeSwitch` for `로드맵 편집` / `사업 카탈로그`.
   - `CatalogToolbar` with keyword, category, business-only subcategory, industry, and region filters plus the secondary `새 사업 등록` action.
   - `CatalogList` and `CatalogRow` using lightweight row separation.
-  - Each catalog row has one reversible `올해 확인` toggle. Its pressed label, `✓ 올해 확인 완료`, is the complete informational marker; no separate badge or workflow is required.
+  - Each catalog row has one reversible icon-only annual verification toggle: an outlined empty circle when unconfirmed and a filled green circle with a check when confirmed. Keep status text out of the row; expose the current year and action through the accessible label and hover title.
   - `CatalogForm` for explicit create/edit mode, not the catalog default.
   - New-business `CatalogForm` is text-first: one agreed-format textarea, inline source-text errors, then searchable multi-select industry and region tags. A missing industry or region can be added as an immediately persisted public option from its picker. It parses only on registration and never shows a parsed-result review or individual creation fields.
   - Existing-business editing retains the current individual editable fields and tag selectors.

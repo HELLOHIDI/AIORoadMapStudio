@@ -1798,13 +1798,14 @@ export function App() {
                       <button type="button" className="button-primary" onClick={() => addCatalogProgram(program)}>로드맵에 추가</button>
                       <button
                         type="button"
-                        className="button-tertiary"
+                        className={`catalog-verification-toggle${verifiedThisYear ? " is-verified" : ""}${verifyingId === program.id ? " is-loading" : ""}`}
                         aria-pressed={verifiedThisYear}
-                        aria-label={`${program.title} ${verifiedThisYear ? "올해 확인 취소" : "올해 확인"}`}
+                        aria-label={`${program.title} ${verifyingId === program.id ? "확인 상태 저장 중" : verifiedThisYear ? "올해 확인 취소" : "올해 확인"}`}
+                        title={verifyingId === program.id ? "저장 중" : verifiedThisYear ? `${catalog.currentYear}년 확인 완료` : `${catalog.currentYear}년 확인하기`}
                         disabled={verifyingId === program.id}
                         onClick={() => setCatalogVerified(program, !verifiedThisYear)}
                       >
-                        {verifyingId === program.id ? "저장 중" : verifiedThisYear ? "✓ 올해 확인 완료" : "올해 확인"}
+                        <span aria-hidden="true">{verifyingId === program.id ? "" : verifiedThisYear ? "✓" : ""}</span>
                       </button>
                       <button type="button" className="button-tertiary" onClick={() => openCatalogForm(program)} aria-label={`${program.title} 편집`}>편집</button>
                       <button type="button" className="button-danger" onClick={() => deleteCatalogProgram(program)} disabled={deletingId === program.id} aria-label={`${program.title} 삭제`}>
