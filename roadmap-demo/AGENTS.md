@@ -84,6 +84,7 @@ Build app UI in `src/`. Preserve the Sites packaging and static-fallback contrac
 
 - A staff member may toggle `올해 확인` only after confirming by phone that the catalog program continues this year. This records continuation only; schedule and details may still be unknown.
 - Store a nullable verification year on the catalog master and compare it with the current `Asia/Seoul` year. Do not add a reset job; a prior-year value simply renders as unconfirmed.
+- Render annual verification as one compact circular icon-only toggle in each catalog row: outlined and empty when unconfirmed, filled green with a check when confirmed. Keep visible status wording out of the row while preserving an accessible label and hover title.
 - Keep the marker informational and reversible. It must not warn, block, hide, filter, sort, reorder, or alter roadmap selection.
 - Do not copy verification into roadmap programs or expose it in PDF/PPTX output. Do not add identity, evidence, history, authentication, or approval workflow without a new explicit product decision.
 

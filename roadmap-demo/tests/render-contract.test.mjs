@@ -137,7 +137,10 @@ test("keeps annual catalog verification informational and out of roadmap exports
   assert.ok(app.includes('aria-pressed={verifiedThisYear}'));
   assert.ok(app.includes('program.verifiedYear === catalog.currentYear'));
   assert.ok(app.includes('verifiedThisYear ? "올해 확인 취소" : "올해 확인"'));
-  assert.ok(app.includes("✓ 올해 확인 완료"));
+  assert.ok(app.includes("catalog-verification-toggle"));
+  assert.ok(app.includes('verifiedThisYear ? "✓" : ""'));
+  assert.ok(app.includes("년 확인 완료"));
+  assert.ok(!app.includes("✓ 올해 확인 완료"));
   assert.match(app, /className="catalog-panel no-print"/);
   assert.doesNotMatch(pptxExport, /verifiedYear|올해 확인 완료/);
 });
