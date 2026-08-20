@@ -97,6 +97,7 @@ function RoadmapEvent({
       <button
         type="button"
         className="roadmap-event__main"
+        data-feedback-id={item.id}
         draggable
         aria-pressed={selected}
         aria-label={`${item.title}, ${roadmapProgramLabel(item)}.${unresolved ? " 미해결 피드백 있음." : ""} 드래그로 행 또는 한 달 이동. 화살표 키로도 이동 가능`}
@@ -170,6 +171,8 @@ function RoadmapEvent({
 function FeedbackPanel({
   program,
   thread,
+  draft,
+  roadmapSaved,
   leadAuthenticated,
   leadPassword,
   reworkDraft,
@@ -180,8 +183,11 @@ function FeedbackPanel({
   onLogout,
   onReworkDraftChange,
   onAction,
+  onDraftChange,
+  onSubmit,
+  onSaveRoadmap,
 }) {
-  if (!program || !thread) return null;
+  if (!program) return null;
   return (
     <aside className="feedback-panel no-print" aria-labelledby="feedback-panel-heading">
       <div className="feedback-panel__heading">
@@ -192,6 +198,18 @@ function FeedbackPanel({
         <button type="button" className="feedback-panel__close" onClick={onClose} aria-label="피드백 닫기">닫기</button>
       </div>
 
+      {!thread ? (
+        <form className="feedback-composer feedback-composer--panel" onSubmit={(event) => onSubmit(event, program.id)}>
+          {!roadmapSaved ? <>
+            <p>피드백을 등록하려면 로드맵을 먼저 저장해 주세요.</p>
+            <button type="button" className="button-primary" onClick={onSaveRoadmap}>로드맵 저장</button>
+          </> : <>
+            <textarea autoFocus value={draft} onChange={(event) => onDraftChange(event.target.value)} placeholder="수정이 필요한 내용을 입력하세요" maxLength="2000" required />
+            {!leadAuthenticated ? <input type="password" value={leadPassword} onChange={(event) => onPasswordChange(event.target.value)} placeholder="팀장 비밀번호" autoComplete="current-password" required /> : null}
+            <button type="submit" className="button-primary" disabled={mutation.status === "saving"}>{mutation.status === "saving" ? "등록 중" : "등록"}</button>
+          </>}
+        </form>
+      ) : <>
       <p className={`feedback-status feedback-status--${thread.status}`}>{feedbackStatusLabel[thread.status]}</p>
 
       <ol className="feedback-timeline">
@@ -254,6 +272,7 @@ function FeedbackPanel({
           </div>
         </div>
       ) : null}
+      </>}
     </aside>
   );
 }
@@ -712,7 +731,13 @@ export function App() {
   const selectedFeedbackThread = selectedFeedbackProgramId ? feedbackByProgram[selectedFeedbackProgramId] : null;
   const selectedFeedbackProgram = selectedFeedbackProgramId
     ? document.programs.find((program) => program.id === selectedFeedbackProgramId)
+      ?? (selectedFeedbackProgramId === "roadmap" ? { id: "roadmap", title: "로드맵 전체 피드백" } : null)
+      ?? (selectedFeedbackProgramId.startsWith("category:") ? {
+        id: selectedFeedbackProgramId,
+        title: `${categoryLabel[selectedFeedbackProgramId.slice("category:".length)] ?? selectedFeedbackProgramId} 피드백`,
+      } : null)
     : null;
+  const selectedFeedbackIsVirtual = selectedFeedbackProgramId === "roadmap" || selectedFeedbackProgramId?.startsWith("category:");
   const placementErrorsByProgram = useMemo(() => new Map(layout.errors
     .filter(({ code, programId }) => code === "E_ROW_CAPACITY" && programId)
     .map((item) => [item.programId, item])), [layout.errors]);
@@ -1110,7 +1135,7 @@ export function App() {
   const closeProgramFeedback = () => {
     const programId = selectedFeedbackProgramId;
     resetFeedbackUi();
-    requestAnimationFrame(() => globalThis.document.querySelector(`[data-program-id="${programId}"] .roadmap-event__main`)?.focus());
+    requestAnimationFrame(() => globalThis.document.querySelector(`[data-feedback-id="${programId}"]`)?.focus());
   };
 
   const authenticateFeedbackLead = async (event) => {
@@ -1219,6 +1244,26 @@ export function App() {
       setFeedbackRefresh((current) => current + 1);
     } catch (error) {
       setFeedbackMutation({ status: "error", error: error.message || "피드백 상태를 변경하지 못했습니다." });
+    }
+  };
+
+  const resolveCompletedFeedback = async () => {
+    if (!roadmapId || !feedbackSession.authenticated) return;
+    setFeedbackMutation({ status: "saving", error: "" });
+    try {
+      const response = await fetch(`/api/roadmaps/${encodeURIComponent(roadmapId)}/feedback/resolve-completed`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json", accept: "application/json", "x-aio-feedback-action": "1" },
+        body: "{}",
+      });
+      const data = await readApiJson(response);
+      if (response.status === 401) setFeedbackSession({ status: "ready", authenticated: false });
+      if (!response.ok) throw new Error(data.error || "일괄 해결 확인에 실패했습니다.");
+      setFeedbackMutation({ status: "idle", error: "" });
+      setFeedbackRefresh((current) => current + 1);
+    } catch (error) {
+      setFeedbackMutation({ status: "error", error: error.message || "일괄 해결 확인에 실패했습니다." });
     }
   };
 
@@ -1493,7 +1538,7 @@ export function App() {
             <article className="roadmap-sheet" aria-label={`${layout.document.clientName || "미지정"} 연간 로드맵`}>
               <header className="sheet-header">
                 <img className="brand-logo" src="/assets/anp-consulting-logo.png" alt="ANP Consulting" />
-                <h1>{`올인원 컨설팅 서비스 연간 로드맵_${layout.document.clientName || "클라이언트명"}`}</h1>
+                <h1><button type="button" className="roadmap-feedback-trigger" data-feedback-id="roadmap" onClick={() => openProgramFeedback("roadmap")}>{`올인원 컨설팅 서비스 연간 로드맵_${layout.document.clientName || "클라이언트명"}`}</button></h1>
                 <p>Road to funds</p>
               </header>
 
@@ -1509,7 +1554,7 @@ export function App() {
                   <div className="watermark">ANP CONSULTING</div>
                   {layout.sections.map((section) => (
                     <div className={`roadmap-section roadmap-section--${section.key}`} key={section.key}>
-                      <div className="roadmap-section__label">{section.label}</div>
+                      <button type="button" className="roadmap-section__label roadmap-feedback-trigger" data-feedback-id={`category:${section.key}`} onClick={() => openProgramFeedback(`category:${section.key}`)}>{section.label}</button>
                       <div className="roadmap-section__timeline">
                         {section.lanes.map((lane, laneIndex) => (
                           <div
@@ -1573,6 +1618,11 @@ export function App() {
               </footer>
             </article>
           </main>
+          {feedbackSession.authenticated && feedback.items.some((item) => item.status === "completed") ? (
+            <button type="button" className="button-primary feedback-bulk-resolve no-print" disabled={feedbackMutation.status === "saving"} onClick={resolveCompletedFeedback}>
+              {feedbackMutation.status === "saving" ? "처리 중" : "수정 완료 피드백 일괄 해결 확인"}
+            </button>
+          ) : null}
           {layoutNotice ? <p className="layout-notice no-print" role="status" aria-live="polite">{layoutNotice}</p> : null}
           {feedback.error ? (
             <div className="feedback-load-error catalog-notice catalog-notice--error no-print" role="alert">
@@ -1624,8 +1674,10 @@ export function App() {
           </section>
 
           <FeedbackPanel
-            program={selectedFeedbackProgram}
+            program={selectedFeedbackThread || selectedFeedbackIsVirtual ? selectedFeedbackProgram : null}
             thread={selectedFeedbackThread}
+            draft={feedbackDraft}
+            roadmapSaved={Boolean(roadmapId)}
             leadAuthenticated={feedbackSession.authenticated}
             leadPassword={leadPassword}
             reworkDraft={reworkDraft}
@@ -1636,6 +1688,9 @@ export function App() {
             onLogout={logoutFeedbackLead}
             onReworkDraftChange={setReworkDraft}
             onAction={performFeedbackAction}
+            onDraftChange={setFeedbackDraft}
+            onSubmit={submitInitialFeedback}
+            onSaveRoadmap={saveRoadmap}
           />
         </>
       ) : (

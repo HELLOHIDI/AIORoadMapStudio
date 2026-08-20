@@ -92,11 +92,16 @@ function feedbackPath(pathname) {
     const roadmapId = decodeURIComponent(collection[1]);
     return /^[A-Za-z0-9_-]{1,100}$/.test(roadmapId) ? { roadmapId } : null;
   }
+  const bulk = pathname.match(/^\/api\/roadmaps\/([^/]+)\/feedback\/resolve-completed$/);
+  if (bulk) {
+    const roadmapId = decodeURIComponent(bulk[1]);
+    return /^[A-Za-z0-9_-]{1,100}$/.test(roadmapId) ? { roadmapId, bulk: true } : null;
+  }
   const item = pathname.match(/^\/api\/roadmaps\/([^/]+)\/feedback\/([^/]+)$/);
   if (!item) return null;
   const roadmapId = decodeURIComponent(item[1]);
   const programId = decodeURIComponent(item[2]);
-  if (!/^[A-Za-z0-9_-]{1,100}$/.test(roadmapId) || !/^[A-Za-z0-9_-]{1,100}$/.test(programId)) return null;
+  if (!/^[A-Za-z0-9_-]{1,100}$/.test(roadmapId) || !/^(?:[A-Za-z0-9_-]{1,100}|category:[A-Za-z0-9_-]{1,80})$/.test(programId)) return null;
   return { roadmapId, programId };
 }
 
@@ -740,7 +745,12 @@ async function updateRoadmap(request, db, id) {
   const updateStatement = db.prepare(`UPDATE roadmaps
     SET client_name = ?, document_json = ?, updated_at = ? WHERE id = ?`)
     .bind(validated.value.clientName, JSON.stringify(validated.value), timestamp, id);
-  const cleanupStatement = await removedProgramFeedbackStatement(db, id, validated.value.programs.map((program) => program.id));
+  const feedbackIds = [
+    ...validated.value.programs.map((program) => program.id),
+    "roadmap",
+    ...[...(validated.value.tier === "standard" ? STANDARD_ROADMAP_CATEGORIES : CATEGORIES)].map((category) => `category:${category}`),
+  ];
+  const cleanupStatement = await removedProgramFeedbackStatement(db, id, feedbackIds);
   const [result] = cleanupStatement
     ? await db.batch([updateStatement, cleanupStatement])
     : [await updateStatement.run()];
@@ -782,12 +792,39 @@ async function roadmapProgramExists(db, roadmapId, programId) {
   try {
     const stored = documentFromStoredRow(row);
     if (stored.error) return { error: apiError(500, stored.error) };
-    const program = stored.document?.programs?.find((item) => item?.id === programId);
+    const allowedCategories = stored.document?.tier === "standard" ? STANDARD_ROADMAP_CATEGORIES : CATEGORIES;
+    const program = stored.document?.programs?.find((item) => item?.id === programId)
+      ?? (programId === "roadmap" ? { id: programId } : null)
+      ?? (/^category:([A-Za-z0-9_-]{1,80})$/.exec(programId)?.[1] && allowedCategories.has(programId.slice("category:".length)) ? { id: programId } : null);
     if (!program) return { error: apiError(404, "ROADMAP_PROGRAM_NOT_FOUND") };
     return { program };
   } catch {
     return { error: apiError(500, "ROADMAP_DOCUMENT_UNREADABLE") };
   }
+}
+
+async function resolveCompletedFeedback(request, env, roadmapId) {
+  const actionHeaderError = requireFeedbackActionHeader(request);
+  if (actionHeaderError) return actionHeaderError;
+  const authError = await requireLeadSession(request, env);
+  if (authError) return authError;
+  const roadmap = await env.DB.prepare("SELECT id FROM roadmaps WHERE id = ?").bind(roadmapId).first();
+  if (!roadmap) return apiError(404, "ROADMAP_NOT_FOUND");
+  const completed = await env.DB.prepare("SELECT id, updated_at AS updatedAt FROM roadmap_feedback WHERE roadmap_id = ? AND status = ?")
+    .bind(roadmapId, "completed")
+    .all();
+  const rows = completed.results ?? [];
+  await env.DB.batch(rows.flatMap((row) => {
+    const previousTimestamp = Date.parse(row.updatedAt);
+    const now = new Date(Math.max(Date.now(), Number.isFinite(previousTimestamp) ? previousTimestamp + 1 : 0)).toISOString();
+    return [
+      env.DB.prepare("UPDATE roadmap_feedback SET status = ?, updated_at = ? WHERE id = ?").bind("resolved", now, row.id),
+      env.DB.prepare(`INSERT INTO roadmap_feedback_events (id, feedback_id, type, role, text, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)`)
+        .bind(crypto.randomUUID(), row.id, "resolved", "lead", "", now),
+    ];
+  }));
+  return json({ resolved: rows.length });
 }
 
 function rowToFeedbackEvent(row) {
@@ -837,7 +874,12 @@ async function listFeedback(db, roadmapId) {
   try {
     const stored = documentFromStoredRow(row);
     if (stored.error) return apiError(500, stored.error);
-    programIds = new Set((stored.document?.programs ?? []).map((program) => program?.id).filter(Boolean));
+    const categories = stored.document?.tier === "standard" ? STANDARD_ROADMAP_CATEGORIES : CATEGORIES;
+    programIds = new Set([
+      ...(stored.document?.programs ?? []).map((program) => program?.id).filter(Boolean),
+      "roadmap",
+      ...[...categories].map((category) => `category:${category}`),
+    ]);
   } catch {
     return apiError(500, "ROADMAP_DOCUMENT_UNREADABLE");
   }
@@ -866,7 +908,7 @@ async function createFeedback(request, env, roadmapId) {
   if (!hasOnlyFields(body.value, new Set(["programId", "text"]))) return apiError(400, "FEEDBACK_INPUT_INVALID");
   const programId = cleanString(body.value?.programId);
   const text = cleanFeedbackText(body.value?.text);
-  if (!/^[A-Za-z0-9_-]{1,100}$/.test(programId) || !text) return apiError(400, "FEEDBACK_INPUT_INVALID");
+  if (!/^(?:[A-Za-z0-9_-]{1,100}|category:[A-Za-z0-9_-]{1,80})$/.test(programId) || !text) return apiError(400, "FEEDBACK_INPUT_INVALID");
   const exists = await roadmapProgramExists(env.DB, roadmapId, programId);
   if (exists.error) return exists.error;
 
@@ -959,6 +1001,7 @@ async function handleApi(request, env, pathname) {
 
   if (feedback) {
     try {
+      if (feedback.bulk && request.method === "POST") return resolveCompletedFeedback(request, env, feedback.roadmapId);
       if (!feedback.programId && request.method === "GET") return listFeedback(env.DB, feedback.roadmapId);
       if (!feedback.programId && request.method === "POST") return createFeedback(request, env, feedback.roadmapId);
       if (feedback.programId && request.method === "PATCH") return updateFeedback(request, env, feedback.roadmapId, feedback.programId);
