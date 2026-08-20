@@ -256,7 +256,7 @@ button {
 }
 
 .tier-badge--editor {
-  margin: -4px 0 12px;
+  margin: -4px 0 0;
 }
 
 .catalog-filter-bar {
@@ -532,6 +532,14 @@ button {
   box-shadow: 0 8px 28px rgb(18 30 55 / 8%);
 }
 
+.authoring-panel__heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+}
+
 .authoring-panel h2,
 .catalog-panel h1,
 .catalog-panel h2,
@@ -541,7 +549,7 @@ button {
 }
 
 .authoring-panel > h2 {
-  margin-bottom: 12px;
+  margin-bottom: 0;
   font-size: 16px;
 }
 
@@ -1920,8 +1928,7 @@ button.roadmap-section__label {
 }
 
 .feedback-bulk-resolve {
-  display: block;
-  margin: 14px auto 0;
+  margin-left: auto;
 }
 
 .feedback-composer strong {

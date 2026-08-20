@@ -1625,11 +1625,6 @@ export function App() {
               </footer>
             </article>
           </main>
-          {feedbackSession.authenticated && feedback.items.some((item) => item.status === "completed") ? (
-            <button type="button" className="button-primary feedback-bulk-resolve no-print" disabled={feedbackMutation.status === "saving"} onClick={resolveCompletedFeedback}>
-              {feedbackMutation.status === "saving" ? "처리 중" : "수정 완료 피드백 일괄 해결 확인"}
-            </button>
-          ) : null}
           {layoutNotice ? <p className="layout-notice no-print" role="status" aria-live="polite">{layoutNotice}</p> : null}
           {feedback.error ? (
             <div className="feedback-load-error catalog-notice catalog-notice--error no-print" role="alert">
@@ -1639,8 +1634,15 @@ export function App() {
           ) : null}
 
           <section className="authoring-panel no-print" aria-labelledby="roadmap-editor-heading">
-            <h2 id="roadmap-editor-heading" ref={roadmapHeading} tabIndex="-1">로드맵 편집</h2>
-            <p className="tier-badge tier-badge--editor no-print" aria-label="로드맵 유형">{tierLabel[documentTier]}</p>
+            <div className="authoring-panel__heading">
+              <h2 id="roadmap-editor-heading" ref={roadmapHeading} tabIndex="-1">로드맵 편집</h2>
+              <p className="tier-badge tier-badge--editor no-print" aria-label="로드맵 유형">{tierLabel[documentTier]}</p>
+              {feedbackSession.authenticated && feedback.items.some((item) => item.status === "completed") ? (
+                <button type="button" className="button-primary feedback-bulk-resolve no-print" disabled={feedbackMutation.status === "saving"} onClick={resolveCompletedFeedback}>
+                  {feedbackMutation.status === "saving" ? "처리 중" : "수정 완료 피드백 일괄 해결 확인"}
+                </button>
+              ) : null}
+            </div>
             <div className="authoring-header">
               <label>
                 <span>클라이언트명</span>
