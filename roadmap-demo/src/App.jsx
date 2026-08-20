@@ -1538,7 +1538,14 @@ export function App() {
             <article className="roadmap-sheet" aria-label={`${layout.document.clientName || "미지정"} 연간 로드맵`}>
               <header className="sheet-header">
                 <img className="brand-logo" src="/assets/anp-consulting-logo.png" alt="ANP Consulting" />
-                <h1><button type="button" className="roadmap-feedback-trigger" data-feedback-id="roadmap" onClick={() => openProgramFeedback("roadmap")}>{`올인원 컨설팅 서비스 연간 로드맵_${layout.document.clientName || "클라이언트명"}`}</button></h1>
+                <h1>
+                  <button type="button" className="roadmap-feedback-trigger" data-feedback-id="roadmap" onClick={() => openProgramFeedback("roadmap")}>
+                    {`올인원 컨설팅 서비스 연간 로드맵_${layout.document.clientName || "클라이언트명"}`}
+                    {feedbackByProgram.roadmap && feedbackByProgram.roadmap.status !== "resolved" ? (
+                      <span className="roadmap-event__feedback-indicator roadmap-event__feedback-indicator--unresolved roadmap-feedback-indicator--scope no-print">수정 필요</span>
+                    ) : null}
+                  </button>
+                </h1>
                 <p>Road to funds</p>
               </header>
 
@@ -1554,7 +1561,7 @@ export function App() {
                   <div className="watermark">ANP CONSULTING</div>
                   {layout.sections.map((section) => (
                     <div className={`roadmap-section roadmap-section--${section.key}`} key={section.key}>
-                      <button type="button" className="roadmap-section__label roadmap-feedback-trigger" data-feedback-id={`category:${section.key}`} onClick={() => openProgramFeedback(`category:${section.key}`)}>{section.label}</button>
+                      <button type="button" className="roadmap-section__label roadmap-feedback-trigger" data-feedback-id={`category:${section.key}`} onClick={() => openProgramFeedback(`category:${section.key}`)}>{section.label}{feedbackByProgram[`category:${section.key}`] && feedbackByProgram[`category:${section.key}`].status !== "resolved" ? <span className="roadmap-event__feedback-indicator roadmap-event__feedback-indicator--unresolved roadmap-feedback-indicator--scope no-print">수정 필요</span> : null}</button>
                       <div className="roadmap-section__timeline">
                         {section.lanes.map((lane, laneIndex) => (
                           <div

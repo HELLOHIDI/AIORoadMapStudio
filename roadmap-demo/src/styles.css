@@ -1881,6 +1881,13 @@ button.roadmap-section__label {
   transform: translateY(0);
 }
 
+.roadmap-feedback-indicator--scope {
+  position: static;
+  display: inline-flex;
+  margin-left: 6px;
+  transform: none;
+}
+
 .feedback-composer {
   position: absolute;
   z-index: 12;
