@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build && node scripts/assert-pptx-browser-bundle.mjs && node scripts/prepare-sites-build.mjs",
     "preview": "vite preview",
-    "test": "node --test tests/amount.test.mjs tests/catalog.test.mjs tests/roadmap-policy.test.mjs tests/pdf-runtime.test.mjs tests/pdf-preflight.test.mjs tests/pptx-export.test.mjs tests/render-contract.test.mjs tests/feedback-worker.test.mjs tests/ultraqa-feedback-adversarial.test.mjs",
+    "test": "node --test tests/amount.test.mjs tests/catalog.test.mjs tests/roadmap-policy.test.mjs tests/roadmap-auto-selection.test.mjs tests/pdf-runtime.test.mjs tests/pdf-preflight.test.mjs tests/pptx-export.test.mjs tests/render-contract.test.mjs tests/feedback-worker.test.mjs tests/ultraqa-feedback-adversarial.test.mjs",
     "test:pptx": "node --test tests/pptx-export.test.mjs",
     "test:sites": "node --test tests/sites-worker.test.mjs",
     "verify:pdf": "node scripts/verify-roadmap-pdf.mjs --tier premium && node scripts/verify-roadmap-pdf.mjs --tier standard",

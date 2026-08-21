@@ -73,19 +73,35 @@ test("adds native PPTX export without coupling it to the PDF runtime gate", () =
   assert.equal(pptxExport.includes("AIO Roadmap Studio"), false);
 });
 
-test("requires an authoring-only tier choice before blank roadmap creation", () => {
+test("requires tier and profile before generating a roadmap draft", () => {
   assert.ok(app.includes('useState("library")'));
   assert.ok(app.includes('setScreen("tier")'));
   assert.ok(app.includes('ref={tierHeading}'));
   assert.ok(app.includes('onClick={() => createRoadmapWithTier("premium")}'));
   assert.ok(app.includes('onClick={() => createRoadmapWithTier("standard")}'));
-  assert.ok(app.includes("const blank = { tier, clientName: \"\", programs: [] }"));
+  assert.ok(app.includes("setPendingTier(tier)"));
+  assert.ok(app.includes("setClientProfileDraft(EMPTY_CLIENT_PROFILE)"));
+  assert.ok(app.includes('setScreen("profile")'));
+  assert.ok(app.includes('if (screen === "profile")'));
+  assert.ok(app.includes('className="client-profile-form" onSubmit={onSubmit}'));
+  assert.ok(app.includes("onSubmit={generateRoadmapDraft}"));
+  assert.ok(app.includes("const generateRoadmapDraft = async (event) =>"));
+  assert.ok(app.includes("const profile = cleanClientProfile(clientProfileDraft)"));
+  assert.ok(app.includes("const catalogSnapshot = await fetchSharedCatalog()"));
+  assert.ok(app.includes("selectRoadmapPrograms({"));
+  assert.ok(app.includes("tier: pendingTier"));
+  assert.ok(app.includes("clientProfile: profile"));
+  assert.ok(app.includes("setDocument(draft)"));
+  assert.ok(app.includes("setRoadmapId(null)"));
+  assert.ok(app.includes("setSavedSignature(JSON.stringify(draft))"));
   assert.ok(app.includes("const cancelTierSelection = () =>"));
   assert.ok(app.includes('setScreen("library")'));
   assert.ok(app.includes('className="tier-choice no-print"'));
+  assert.ok(app.includes('className="tier-choice tier-choice--profile no-print"'));
   assert.ok(app.includes('className="tier-badge tier-badge--editor no-print"'));
   assert.ok(app.includes('className="tier-badge no-print"'));
   assert.match(styles, /\.tier-choice\s*\{/);
+  assert.match(styles, /\.client-profile-form,\s*\.client-profile-form__fields\s*\{/);
   assert.match(styles, /\.tier-badge\s*\{/);
   assert.match(styles, /\.catalog-row__meta > div\s*\{[^}]*align-items: center;/s);
   assert.ok(app.includes('className="catalog-row catalog-row--roadmap"'));
@@ -96,8 +112,12 @@ test("requires an authoring-only tier choice before blank roadmap creation", () 
 test("resolves authoring categories from the immutable roadmap tier", () => {
   assert.ok(app.includes("allowedCategoriesForTier(documentTier)"));
   assert.ok(app.includes("resolveRoadmapTier(document)"));
-  assert.ok(app.includes("setActiveCategory(firstCategory)"));
+  assert.ok(app.includes("setActiveCategory(allowedCategoriesForTier(pendingTier)[0].key)"));
   assert.ok(app.includes("setCatalogCategory(CATALOG_CATEGORIES[0].key)"));
+  assert.ok(app.includes("setCatalogStartMonth(String(catalogSnapshot.months.startMonth))"));
+  assert.ok(app.includes("setCatalogEndMonth(String(catalogSnapshot.months.endMonth))"));
+  assert.ok(app.includes('setMode("roadmap")'));
+  assert.ok(app.includes('setScreen("editor")'));
   assert.ok(app.includes("const nextFirstCategory = allowedCategoriesForTier(resolveRoadmapTier(data.item.document))[0].key"));
   assert.ok(app.includes("allowedCategories.map(({ key, label })"));
   assert.ok(app.includes("catalogCategories.map(({ key, label })"));

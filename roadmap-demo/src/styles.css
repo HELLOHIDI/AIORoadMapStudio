@@ -240,6 +240,82 @@ button {
   gap: 10px;
 }
 
+.tier-choice--profile {
+  place-items: start center;
+}
+
+.tier-choice__panel--profile {
+  width: min(820px, 100%);
+}
+
+.client-profile-form,
+.client-profile-form__fields {
+  display: grid;
+  gap: 14px;
+}
+
+.client-profile-form__fields {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.client-profile-form__fields > legend {
+  padding: 0;
+  color: #363b46;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.client-profile-form__check,
+.client-profile-form__tenure label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #363b46;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.client-profile-form__check input,
+.client-profile-form__tenure input[type="radio"] {
+  flex: none;
+}
+
+.client-profile-form__tenure {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px 16px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #dfe3ea;
+  border-radius: 8px;
+}
+
+.client-profile-form__tenure legend {
+  padding: 0 5px;
+  color: #363b46;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.client-profile-form__tenure label:has(input[type="number"]) {
+  display: grid;
+  gap: 5px;
+  min-width: 130px;
+}
+
+.client-profile-form input[type="number"] {
+  height: 36px;
+  padding: 8px 9px;
+  border: 1px solid #cbd0da;
+  border-radius: 6px;
+  color: #181b22;
+  background: #fff;
+  font: inherit;
+}
+
 .tier-badge {
   display: inline-flex;
   align-items: center;
@@ -675,6 +751,36 @@ button {
   color: #214f2b;
   font-size: 12px;
   font-weight: 700;
+}
+
+.draft-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid #dfe3ea;
+  border-radius: 8px;
+  background: #f8f9fb;
+}
+
+.draft-summary div {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.draft-summary dt {
+  color: #6c7280;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.draft-summary dd {
+  margin: 0;
+  color: #2f3541;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .delete-program {

@@ -84,6 +84,9 @@ function createFeedbackDatabase() {
                     })),
                 };
               }
+              if (statement.startsWith("SELECT kind, value FROM catalog_options")) {
+                return { results: [] };
+              }
               throw new Error(`Unsupported all: ${statement}`);
             },
             async first() {

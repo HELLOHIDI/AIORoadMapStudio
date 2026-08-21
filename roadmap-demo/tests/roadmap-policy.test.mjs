@@ -63,6 +63,29 @@ test("normalizes missing roadmap tier to premium", () => {
   const { document, errors } = validateRoadmapDocument({ clientName: "ANP", programs: [] });
 
   assert.equal(document.tier, "premium");
+  assert.equal(Object.hasOwn(document, "clientProfile"), false);
+  assert.deepEqual(errors, []);
+});
+
+test("normalizes optional client profile without changing lane assignments", () => {
+  const { document, errors } = validateRoadmapDocument({
+    clientName: "ANP",
+    clientProfile: {
+      industries: [" AI ", "AI"],
+      regions: [" Seoul\nMetro "],
+      isWomenOwned: true,
+      tenure: " prelaunch ",
+    },
+    programs: [program("p1", 1, 2, { laneIndex: 1 })],
+  });
+
+  assert.deepEqual(document.clientProfile, {
+    industries: ["AI"],
+    regions: ["Seoul Metro"],
+    isWomenOwned: true,
+    tenure: "prelaunch",
+  });
+  assert.equal(document.programs[0].laneIndex, 1);
   assert.deepEqual(errors, []);
 });
 

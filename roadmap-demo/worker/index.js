@@ -20,7 +20,8 @@ const ROADMAP_TIERS = new Set(["premium", "standard"]);
 const STANDARD_ROADMAP_CATEGORIES = new Set(["consulting", "business", "voucher", "ip"]);
 const FIELDS = new Set(["category", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "industries", "regions", "mainPackage"]);
 const VERIFICATION_FIELDS = new Set(["verified"]);
-const ROADMAP_FIELDS = new Set(["tier", "clientName", "programs"]);
+const ROADMAP_FIELDS = new Set(["tier", "clientName", "programs", "clientProfile"]);
+const ROADMAP_CLIENT_PROFILE_FIELDS = new Set(["industries", "regions", "isWomenOwned", "tenure"]);
 const ROADMAP_PROGRAM_FIELDS = new Set(["id", "category", "displayCategory", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "sequence", "laneIndex"]);
 const INDUSTRIES = new Set(INDUSTRY_OPTIONS);
 const NON_INDUSTRIES = new Set(NON_INDUSTRY_OPTIONS);
@@ -406,7 +407,39 @@ function draftNumber(value) {
   return value === "" || Number.isSafeInteger(value);
 }
 
-export function validateRoadmapDocumentForStorage(input) {
+function roadmapTagList(value, allowed, maxLength = 20) {
+  return Array.isArray(value)
+    && value.length <= maxLength
+    && value.every((item) => typeof item === "string" && allowed.has(item));
+}
+
+function roadmapTenure(value) {
+  return value === "prelaunch"
+    || (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100);
+}
+
+function validateRoadmapClientProfile(input, options) {
+  if (input === undefined) return {};
+  if (!input || typeof input !== "object" || Array.isArray(input)) return { error: "clientProfile must be an object." };
+  const unknown = Object.keys(input).filter((key) => !ROADMAP_CLIENT_PROFILE_FIELDS.has(key));
+  if (unknown.length) return { error: `clientProfile has unsupported fields: ${unknown.join(", ")}` };
+  if (!roadmapTagList(input.industries, options.industries)) return { error: "clientProfile.industries is invalid." };
+  if (!roadmapTagList(input.regions, options.regions)) return { error: "clientProfile.regions is invalid." };
+  if (typeof input.isWomenOwned !== "boolean") return { error: "clientProfile.isWomenOwned is invalid." };
+  if (!roadmapTenure(input.tenure)) return { error: "clientProfile.tenure is invalid." };
+  return {
+    value: {
+      industries: [...new Set(input.industries)],
+      regions: [...new Set(input.regions)],
+      isWomenOwned: input.isWomenOwned,
+      tenure: input.tenure,
+    },
+  };
+}
+
+// Saved roadmaps remain intentionally editable after generation, so the Worker validates the document contract
+// rather than recomputing draft eligibility against a potentially changed catalog.
+export function validateRoadmapDocumentForStorage(input, options = { industries: INDUSTRIES, regions: REGIONS }) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { error: "로드맵을 JSON 객체로 입력해 주세요." };
   }
@@ -419,6 +452,9 @@ export function validateRoadmapDocumentForStorage(input) {
     return { error: `로드맵 사업은 ${MAX_ROADMAP_PROGRAMS}개 이하의 배열이어야 합니다.` };
   }
 
+  const clientProfile = validateRoadmapClientProfile(input.clientProfile, options);
+  if (clientProfile.error) return clientProfile;
+
   const forbiddenStandardCategoryIndex = input.tier === "standard"
     ? input.programs.findIndex((program) => CATEGORIES.has(program?.category) && !STANDARD_ROADMAP_CATEGORIES.has(program.category))
     : -1;
@@ -426,6 +462,7 @@ export function validateRoadmapDocumentForStorage(input) {
     return { error: `programs[${forbiddenStandardCategoryIndex}].category is not supported for the standard roadmap tier.` };
   }
 
+  const seenProgramIds = new Set();
   for (const [index, program] of input.programs.entries()) {
     if (!program || typeof program !== "object" || Array.isArray(program)) {
       return { error: `programs[${index}]은 객체여야 합니다.` };
@@ -437,6 +474,8 @@ export function validateRoadmapDocumentForStorage(input) {
     if (!boundedString(program.id, 100) || !/^[A-Za-z0-9_-]+$/.test(program.id)) {
       return { error: `programs[${index}].id 형식이 올바르지 않습니다.` };
     }
+    if (seenProgramIds.has(program.id)) return { error: `programs[${index}].id must be unique.` };
+    seenProgramIds.add(program.id);
     if (!CATEGORIES.has(program.category)) return { error: `programs[${index}].category가 올바르지 않습니다.` };
     if (program.displayCategory !== undefined && (program.category !== "business" || program.displayCategory !== "marketing")) {
       return { error: `programs[${index}].displayCategory가 올바르지 않습니다.` };
@@ -462,7 +501,7 @@ export function validateRoadmapDocumentForStorage(input) {
     }
   }
 
-  return { value: input };
+  return { value: clientProfile.value ? { ...input, clientProfile: clientProfile.value } : input };
 }
 
 function rowToProgram(row) {
@@ -719,7 +758,7 @@ async function getRoadmap(db, id) {
 async function createRoadmap(request, db) {
   const body = await readBody(request);
   if (body.error) return apiError(body.status ?? 400, body.error);
-  const validated = validateRoadmapDocumentForStorage(body.value);
+  const validated = validateRoadmapDocumentForStorage(body.value, await catalogOptionSets(db));
   if (validated.error) return apiError(400, validated.error);
 
   const id = crypto.randomUUID();
@@ -734,7 +773,7 @@ async function createRoadmap(request, db) {
 async function updateRoadmap(request, db, id) {
   const body = await readBody(request);
   if (body.error) return apiError(body.status ?? 400, body.error);
-  const validated = validateRoadmapDocumentForStorage(body.value);
+  const validated = validateRoadmapDocumentForStorage(body.value, await catalogOptionSets(db));
   if (validated.error) return apiError(400, validated.error);
 
   const existing = await db.prepare("SELECT tier FROM roadmaps WHERE id = ?").bind(id).first();
