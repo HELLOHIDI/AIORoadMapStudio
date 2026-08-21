@@ -1,6 +1,6 @@
 # Repository delivery policy
 
-This repository uses a mandatory GitHub delivery loop for every `$ultragoal` code change. Treat this file as the execution contract. App-specific behavior remains governed by `roadmap-demo/AGENTS.md` and `roadmap-demo/DESIGN.md`.
+This repository uses a mandatory agent GitHub delivery loop for every `$ultragoal` code change. Treat this file as the execution contract. App-specific behavior remains governed by `roadmap-demo/AGENTS.md` and `roadmap-demo/DESIGN.md`.
 
 ## Mandatory Ultragoal loop
 
@@ -14,6 +14,8 @@ Issue -> branch from origin/master -> implement -> verify
 ```
 
 The work is not complete at local implementation, commit, push, PR creation, or merge. Do not claim completion until the exact merged `origin/master` SHA has been privately deployed, deployment success has been verified, evidence has been recorded on the Issue, and the Issue has been closed.
+
+This agent policy is not a substitute for GitHub enforcement. Branch protection/rulesets and auto-merge must be configured separately when the repository plan permits them. If GitHub rejects those settings because of plan or permission limits, record the failure, keep structural-enforcement work incomplete, and never describe manual squash merging as equivalent enforcement.
 
 ## Start and branch rules
 
@@ -43,18 +45,18 @@ npm run test:sites       (working directory: roadmap-demo)
 git diff --check
 ```
 
-The required GitHub check is `CI / verify` from `.github/workflows/ci.yml`. Do not duplicate or bypass this workflow. Include the commands and results in the PR.
+The required GitHub check is `CI / verify` from `.github/workflows/ci.yml`. Inspect and poll this real workflow only; do not create, update, duplicate, or bypass required checks. Include the commands and results in the PR.
 
 ## Merge and Sites rules
 
-- When all required checks pass and the Issue acceptance criteria are satisfied, use squash merge and delete the work branch.
+- When all required checks pass and the Issue acceptance criteria are satisfied, enable auto-merge with squash and branch deletion when the repository supports it. If auto-merge is unavailable, record that structural limitation and use a deliberate squash merge only as the documented operational fallback.
 - Use the exact resulting `origin/master` commit as the Sites source. Save one Sites version, deploy it privately, poll until success or failure, and record the evidence on the Issue.
 - A public or shared deployment always requires explicit user approval. A private deployment failure keeps the Issue open and blocks completion.
 - After a successful private deployment and evidence update, close the Issue. A new request starts a new Issue, branch, PR, and private deployment.
 
 ## Boundaries and escalation
 
-The agent may create/update Issues, branches, commits, PRs, checks, squash merges, branch deletion for the current merged branch, private Sites versions/deployments, deployment evidence, and Issue closure within this loop.
+The agent may create/update Issues, branches, commits, PRs, private Sites versions/deployments, deployment evidence, and Issue closure within this loop. It may inspect/poll required checks but must not create, update, duplicate, or bypass their status.
 
 Stop and escalate when credentials or permissions are missing, required checks cannot pass without changing scope, recovery would be destructive or irreversible, deployment would become public/shared, branch protection would be weakened, or a failure requires a materially different feature or rollback decision.
 
