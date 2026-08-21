@@ -182,14 +182,19 @@ function createDatabase() {
 
 function createRoadmapDatabase() {
   const rows = [];
+  const options = [];
   return {
     rows,
+    options,
     prepare(sql) {
       const statement = sql.replace(/\s+/g, " ").trim();
       return {
         bind(...params) {
           return {
             async all() {
+              if (statement.startsWith("SELECT kind, value FROM catalog_options")) {
+                return { results: options.toSorted((left, right) => left.kind.localeCompare(right.kind) || left.value.localeCompare(right.value)) };
+              }
               const [limit, offset] = params;
               return {
                 results: rows
@@ -798,6 +803,79 @@ test("persists public roadmap drafts without applying PDF validity rules", async
 
   const missingResponse = await request(`/api/roadmaps/${created.item.id}`);
   assert.equal(missingResponse.status, 404);
+});
+
+test("persists optional roadmap client profiles through create, load, and update", async () => {
+  const DB = createRoadmapDatabase();
+  const env = { DB };
+  const request = (path, options) => worker.fetch(new Request(`https://example.test${path}`, options), env);
+  const draft = {
+    tier: "premium",
+    clientName: "Profiled client",
+    clientProfile: {
+      industries: [INDUSTRY_OPTIONS[0], INDUSTRY_OPTIONS[0]],
+      regions: [REGION_OPTIONS[0]],
+      isWomenOwned: true,
+      tenure: 2.5,
+    },
+    programs: [{
+      id: "profile-1",
+      category: "business",
+      title: "Profile program",
+      link: "",
+      amountKrw: null,
+      startMonth: 1,
+      endMonth: 2,
+      target: "",
+      details: "",
+      sequence: 0,
+      laneIndex: 2,
+    }],
+  };
+  const normalizedProfile = { ...draft.clientProfile, industries: [INDUSTRY_OPTIONS[0]] };
+  const normalizedDraft = { ...draft, clientProfile: normalizedProfile };
+
+  const invalidProfile = await request("/api/roadmaps", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...draft, clientProfile: { ...draft.clientProfile, regions: ["not a catalog region"] } }),
+  });
+  assert.equal(invalidProfile.status, 400);
+  assert.equal(DB.rows.length, 0);
+
+  const duplicateIds = await request("/api/roadmaps", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...draft, programs: [draft.programs[0], { ...draft.programs[0], title: "Duplicate profile program" }] }),
+  });
+  assert.equal(duplicateIds.status, 400);
+  assert.equal(DB.rows.length, 0);
+
+  const createdResponse = await request("/api/roadmaps", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(draft),
+  });
+  const created = await createdResponse.json();
+  assert.equal(createdResponse.status, 201);
+  assert.deepEqual(created.item.document, normalizedDraft);
+  assert.equal(created.item.document.programs[0].laneIndex, 2);
+  assert.deepEqual(JSON.parse(DB.rows[0].documentJson), normalizedDraft);
+
+  const opened = await (await request(`/api/roadmaps/${created.item.id}`)).json();
+  assert.deepEqual(opened.item.document.clientProfile, normalizedProfile);
+  assert.equal(opened.item.document.programs[0].laneIndex, 2);
+
+  const updatedDraft = { ...normalizedDraft, clientProfile: { ...normalizedProfile, tenure: "prelaunch", isWomenOwned: false } };
+  const updatedResponse = await request(`/api/roadmaps/${created.item.id}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(updatedDraft),
+  });
+  const updated = await updatedResponse.json();
+  assert.equal(updatedResponse.status, 200);
+  assert.deepEqual(updated.item.document, updatedDraft);
+  assert.deepEqual(JSON.parse(DB.rows[0].documentJson), updatedDraft);
 });
 
 test("hydrates legacy roadmap JSON tier from the canonical row and rejects mismatches", async () => {

@@ -31,9 +31,23 @@ function normalizeText(value) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : value;
 }
 
+function normalizeTextList(value) {
+  return Array.isArray(value) ? [...new Set(value.map(normalizeText))] : [];
+}
+
+function normalizeClientProfile(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return {
+    industries: normalizeTextList(value.industries),
+    regions: normalizeTextList(value.regions),
+    isWomenOwned: value.isWomenOwned === true,
+    tenure: normalizeText(value.tenure),
+  };
+}
+
 function normalizeDocument(input) {
   const tier = roadmapTierSet.has(input?.tier) ? input.tier : "premium";
-  return {
+  const document = {
     tier,
     clientName: normalizeText(input?.clientName),
     programs: Array.isArray(input?.programs)
@@ -44,6 +58,8 @@ function normalizeDocument(input) {
         }))
       : [],
   };
+  const clientProfile = normalizeClientProfile(input?.clientProfile);
+  return clientProfile ? { ...document, clientProfile } : document;
 }
 
 export function resolveRoadmapTier(input) {

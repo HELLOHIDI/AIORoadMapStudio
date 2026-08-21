@@ -5,12 +5,18 @@ import { formatAmount } from "./amount.js";
 import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, EMPTY_CATALOG_PROGRAM, formatCatalogBulletText, parseCatalogText } from "./catalog.js";
 import { runPdfPreflight } from "./pdf-preflight.js";
 import { detectPdfRuntime, PDF_RUNTIME } from "./pdf-runtime.js";
+import { selectRoadmapPrograms } from "./roadmap-auto-selection.js";
 import { allowedCategoriesForTier, buildRoadmapLayout, moveProgramToTargetLane, ROADMAP_CATEGORIES, roadmapProgramLabel, resolveRoadmapTier, shiftProgramByMonths } from "./roadmap-policy.js";
 
 const months = Array.from({ length: 12 }, (_, index) => `${index + 1}월`);
 const categoryLabel = Object.fromEntries(ROADMAP_CATEGORIES.map(({ key, label }) => [key, label]));
 const EMPTY_ROADMAP = Object.freeze({ clientName: "", programs: Object.freeze([]) });
+const EMPTY_CLIENT_PROFILE = Object.freeze({ industries: Object.freeze([]), regions: Object.freeze([]), isWomenOwned: false, tenure: "prelaunch" });
 const EMPTY_PPTX_STATE = Object.freeze({ status: "idle", error: "", message: "" });
+const CATALOG_PAGE_LIMIT = 100;
+const CATALOG_MAX_OFFSET = 100_000;
+// ponytail: bound pagination to the Worker offset contract; raise with the API limit if the catalog outgrows it.
+const CATALOG_PAGE_CAP = Math.floor(CATALOG_MAX_OFFSET / CATALOG_PAGE_LIMIT) + 1;
 const tierLabel = Object.freeze({ premium: "Premium", standard: "Standard" });
 const feedbackStatusLabel = Object.freeze({
   needs_changes: "수정 필요",
@@ -50,6 +56,10 @@ function safeExternalUrl(value) {
   } catch {
     return "";
   }
+}
+
+function createProgramId() {
+  return globalThis.crypto.randomUUID();
 }
 
 function RoadmapEvent({
@@ -97,6 +107,7 @@ function RoadmapEvent({
       <button
         type="button"
         className="roadmap-event__main"
+        data-feedback-id={item.id}
         draggable
         aria-pressed={selected}
         aria-label={`${item.title}, ${roadmapProgramLabel(item)}.${unresolved ? " 미해결 피드백 있음." : ""} 드래그로 행 또는 한 달 이동. 화살표 키로도 이동 가능`}
@@ -170,6 +181,8 @@ function RoadmapEvent({
 function FeedbackPanel({
   program,
   thread,
+  draft,
+  roadmapSaved,
   leadAuthenticated,
   leadPassword,
   reworkDraft,
@@ -180,8 +193,11 @@ function FeedbackPanel({
   onLogout,
   onReworkDraftChange,
   onAction,
+  onDraftChange,
+  onSubmit,
+  onSaveRoadmap,
 }) {
-  if (!program || !thread) return null;
+  if (!program) return null;
   return (
     <aside className="feedback-panel no-print" aria-labelledby="feedback-panel-heading">
       <div className="feedback-panel__heading">
@@ -192,6 +208,18 @@ function FeedbackPanel({
         <button type="button" className="feedback-panel__close" onClick={onClose} aria-label="피드백 닫기">닫기</button>
       </div>
 
+      {!thread ? (
+        <form className="feedback-composer feedback-composer--panel" onSubmit={(event) => onSubmit(event, program.id)}>
+          {!roadmapSaved ? <>
+            <p>피드백을 등록하려면 로드맵을 먼저 저장해 주세요.</p>
+            <button type="button" className="button-primary" onClick={onSaveRoadmap}>로드맵 저장</button>
+          </> : <>
+            <textarea autoFocus value={draft} onChange={(event) => onDraftChange(event.target.value)} placeholder="수정이 필요한 내용을 입력하세요" maxLength="2000" required />
+            {!leadAuthenticated ? <input type="password" value={leadPassword} onChange={(event) => onPasswordChange(event.target.value)} placeholder="팀장 비밀번호" autoComplete="current-password" required /> : null}
+            <button type="submit" className="button-primary" disabled={mutation.status === "saving"}>{mutation.status === "saving" ? "등록 중" : "등록"}</button>
+          </>}
+        </form>
+      ) : <>
       <p className={`feedback-status feedback-status--${thread.status}`}>{feedbackStatusLabel[thread.status]}</p>
 
       <ol className="feedback-timeline">
@@ -254,6 +282,7 @@ function FeedbackPanel({
           </div>
         </div>
       ) : null}
+      </>}
     </aside>
   );
 }
@@ -489,6 +518,60 @@ function RegionFilter({ options, value = [], onChange }) {
   );
 }
 
+function ClientProfileForm({ profile, options, state, onChange, onBack, onSubmit }) {
+  const tenureType = profile.tenure === "prelaunch" ? "prelaunch" : "launched";
+  const tenureYears = tenureType === "launched" && Number.isFinite(Number(profile.tenure)) ? String(profile.tenure) : "";
+
+  return (
+    <form className="client-profile-form" onSubmit={onSubmit}>
+      <fieldset className="client-profile-form__fields" disabled={state.status === "loading" || state.status === "generating"}>
+        <legend>고객 맞춤정보</legend>
+        <div className="catalog-tag-pickers">
+          <TagPicker
+            label="업종"
+            options={options.industries}
+            value={profile.industries}
+            onChange={(industries) => onChange({ ...profile, industries })}
+          />
+          <RegionFilter
+            options={options.regions}
+            value={profile.regions}
+            onChange={(regions) => onChange({ ...profile, regions })}
+          />
+        </div>
+        <label className="client-profile-form__check">
+          <input type="checkbox" checked={profile.isWomenOwned} onChange={(event) => onChange({ ...profile, isWomenOwned: event.target.checked })} />
+          <span>여성기업 또는 여성 창업자</span>
+        </label>
+        <fieldset className="client-profile-form__tenure">
+          <legend>업력</legend>
+          <label>
+            <input type="radio" name="client-tenure" value="prelaunch" checked={tenureType === "prelaunch"} onChange={() => onChange({ ...profile, tenure: "prelaunch" })} />
+            <span>예비창업</span>
+          </label>
+          <label>
+            <input type="radio" name="client-tenure" value="launched" checked={tenureType === "launched"} onChange={() => onChange({ ...profile, tenure: tenureYears || "0" })} />
+            <span>창업 후</span>
+          </label>
+          {tenureType === "launched" ? (
+            <label>
+              <span>업력(년)</span>
+              <input type="number" min="0" step="0.1" value={tenureYears} onChange={(event) => onChange({ ...profile, tenure: event.target.value })} required />
+            </label>
+          ) : null}
+        </fieldset>
+      </fieldset>
+      {state.error ? <p className="catalog-notice catalog-notice--error" role="alert">{state.error}</p> : null}
+      <div className="tier-choice__actions">
+        <button type="button" className="button-secondary" onClick={onBack} disabled={state.status === "loading" || state.status === "generating"}>이전</button>
+        <button type="submit" className="button-primary" disabled={state.status === "loading" || state.status === "generating"}>
+          {state.status === "loading" ? "카탈로그 불러오는 중" : state.status === "generating" ? "초안 생성 중" : "초안 생성"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function CatalogForm({ categories, form, state, options, onChange, onCancel, onCreateOption, onDirty, onSubmit }) {
   const [importText, setImportText] = useState("");
   const [importErrors, setImportErrors] = useState([]);
@@ -645,6 +728,9 @@ export function App() {
   const [roadmaps, setRoadmaps] = useState({ status: "idle", items: [], error: "" });
   const [roadmapRefresh, setRoadmapRefresh] = useState(0);
   const [roadmapMutation, setRoadmapMutation] = useState({ status: "idle", error: "", message: "" });
+  const [pendingTier, setPendingTier] = useState("premium");
+  const [clientProfileDraft, setClientProfileDraft] = useState(EMPTY_CLIENT_PROFILE);
+  const [draftGeneration, setDraftGeneration] = useState({ status: "idle", error: "", summary: null });
   const [openingRoadmapId, setOpeningRoadmapId] = useState(null);
   const [deletingRoadmapId, setDeletingRoadmapId] = useState(null);
   const [pdfState, setPdfState] = useState({ status: "editing", errors: [] });
@@ -689,6 +775,7 @@ export function App() {
   const roadmapHeading = useRef(null);
   const catalogHeading = useRef(null);
   const tierHeading = useRef(null);
+  const profileHeading = useRef(null);
   const moveFocus = useRef(false);
   const layout = useMemo(() => buildRoadmapLayout(document), [document]);
   const documentSignature = useMemo(() => JSON.stringify(document), [document]);
@@ -712,7 +799,13 @@ export function App() {
   const selectedFeedbackThread = selectedFeedbackProgramId ? feedbackByProgram[selectedFeedbackProgramId] : null;
   const selectedFeedbackProgram = selectedFeedbackProgramId
     ? document.programs.find((program) => program.id === selectedFeedbackProgramId)
+      ?? (selectedFeedbackProgramId === "roadmap" ? { id: "roadmap", title: "로드맵 전체 피드백" } : null)
+      ?? (selectedFeedbackProgramId.startsWith("category:") ? {
+        id: selectedFeedbackProgramId,
+        title: `${categoryLabel[selectedFeedbackProgramId.slice("category:".length)] ?? selectedFeedbackProgramId} 피드백`,
+      } : null)
     : null;
+  const selectedFeedbackIsVirtual = selectedFeedbackProgramId === "roadmap" || selectedFeedbackProgramId?.startsWith("category:");
   const placementErrorsByProgram = useMemo(() => new Map(layout.errors
     .filter(({ code, programId }) => code === "E_ROW_CAPACITY" && programId)
     .map((item) => [item.programId, item])), [layout.errors]);
@@ -761,11 +854,11 @@ export function App() {
   useEffect(() => {
     if (!moveFocus.current) return;
     moveFocus.current = false;
-    (screen === "library" ? libraryHeading : screen === "tier" ? tierHeading : mode === "roadmap" ? roadmapHeading : catalogHeading).current?.focus();
+    (screen === "library" ? libraryHeading : screen === "tier" ? tierHeading : screen === "profile" ? profileHeading : mode === "roadmap" ? roadmapHeading : catalogHeading).current?.focus();
   }, [mode, screen]);
 
   useEffect(() => {
-    if (screen !== "editor" || mode !== "catalog") return undefined;
+    if (screen !== "profile" && (screen !== "editor" || mode !== "catalog")) return undefined;
     const controller = new AbortController();
     setCatalogOptions((current) => ({ ...current, error: "" }));
     fetch("/api/catalog-options", { signal: controller.signal, headers: { accept: "application/json" } })
@@ -878,31 +971,114 @@ export function App() {
     setFeedbackMutation({ status: "idle", error: "" });
   };
 
+  const fetchSharedCatalog = async () => {
+    const all = [];
+    for (let page = 0; page < CATALOG_PAGE_CAP; page += 1) {
+      const params = new URLSearchParams({ limit: String(CATALOG_PAGE_LIMIT), offset: String(page * CATALOG_PAGE_LIMIT) });
+      const response = await fetch(`/api/catalog-programs?${params}`, { headers: { accept: "application/json" } });
+      const data = await readApiJson(response);
+      if (!response.ok) throw new Error(data.error || "카탈로그를 불러오지 못했습니다.");
+      all.push(...(data.items || []));
+      if (all.length >= Number(data.total || 0) || !data.items?.length) {
+        return { programs: all, total: Number(data.total || all.length), months: { startMonth: 1, endMonth: 12 } };
+      }
+    }
+    throw new Error(`카탈로그가 ${CATALOG_PAGE_LIMIT * CATALOG_PAGE_CAP}개를 초과해 초안을 생성하지 않았습니다.`);
+  };
+
+  const cleanClientProfile = (profile) => ({
+    industries: Array.isArray(profile.industries) ? profile.industries : [],
+    regions: Array.isArray(profile.regions) ? profile.regions : [],
+    isWomenOwned: profile.isWomenOwned === true,
+    tenure: profile.tenure === "prelaunch" ? "prelaunch" : Number(profile.tenure || 0),
+  });
+
+  const consultingSummaryProgram = (profile) => {
+    const tags = profile.isWomenOwned
+      ? [...profile.industries, ...profile.regions].slice(0, 5).concat("여성")
+      : [...profile.industries, ...profile.regions].slice(0, 6);
+    const suffix = tags.length ? `(${tags.join(", ")} 등)` : "(전체)";
+    return {
+      id: createProgramId(),
+      category: "consulting",
+      title: `[상시] 지역및업종기반지원사업${suffix}`,
+      startMonth: 1,
+      endMonth: 12,
+      amountKrw: null,
+      sequence: 0,
+    };
+  };
+
+  const generateRoadmapDraft = async (event) => {
+    event?.preventDefault();
+    const profile = cleanClientProfile(clientProfileDraft);
+    setDraftGeneration({ status: "loading", error: "", summary: null });
+    try {
+      const catalogSnapshot = await fetchSharedCatalog();
+      setDraftGeneration({ status: "generating", error: "", summary: null });
+      const selection = selectRoadmapPrograms({
+        programs: catalogSnapshot.programs,
+        client: profile,
+        tier: pendingTier,
+        reservedRowsByCategory: { consulting: 1 },
+      });
+      const programs = [
+        consultingSummaryProgram(profile),
+        ...selection.programs.map((program, index) => ({ ...copyCatalogProgram(program, index + 1, createProgramId), sequence: index + 1 })),
+      ];
+      const draft = {
+        tier: pendingTier,
+        clientName: "",
+        clientProfile: profile,
+        programs,
+      };
+      const summary = {
+        catalogTotal: catalogSnapshot.total,
+        months: catalogSnapshot.months,
+        categories: selection.categories.map(({ key, eligibleCount, placedCount }) => ({ key, eligibleCount, placedCount })),
+      };
+      setDocument(draft);
+      setRoadmapId(null);
+      setSavedSignature(JSON.stringify(draft));
+      setRoadmapMutation({ status: "idle", error: "", message: "" });
+      setCatalogForm(null);
+      setCatalogFormDirty(false);
+      setActiveCategory(allowedCategoriesForTier(pendingTier)[0].key);
+      setCatalogCategory(CATALOG_CATEGORIES[0].key);
+      setCatalogStartMonth(String(catalogSnapshot.months.startMonth));
+      setCatalogEndMonth(String(catalogSnapshot.months.endMonth));
+      setCatalogOffset(0);
+      setMode("roadmap");
+      resetFeedbackUi();
+      moveFocus.current = true;
+      setScreen("editor");
+      setDraftGeneration({ status: "idle", error: "", summary });
+    } catch (error) {
+      setDraftGeneration({ status: "error", error: error.message || "초안을 생성하지 못했습니다.", summary: null });
+    }
+  };
+
   const startNewRoadmap = () => {
     setRoadmapMutation({ status: "idle", error: "", message: "" });
     setCatalogForm(null);
     setCatalogFormDirty(false);
+    setDraftGeneration({ status: "idle", error: "", summary: null });
     resetFeedbackUi();
     moveFocus.current = true;
     setScreen("tier");
   };
 
   const createRoadmapWithTier = (tier) => {
-    const firstCategory = allowedCategoriesForTier(tier)[0].key;
-    const blank = { tier, clientName: "", programs: [] };
-    setDocument(blank);
+    setPendingTier(tier);
+    setClientProfileDraft(EMPTY_CLIENT_PROFILE);
     setRoadmapId(null);
-    setSavedSignature(JSON.stringify(blank));
     setRoadmapMutation({ status: "idle", error: "", message: "" });
+    setDraftGeneration({ status: "idle", error: "", summary: null });
     setCatalogForm(null);
     setCatalogFormDirty(false);
-    setActiveCategory(firstCategory);
-    setCatalogCategory(CATALOG_CATEGORIES[0].key);
-    setCatalogOffset(0);
-    setMode("roadmap");
     resetFeedbackUi();
     moveFocus.current = true;
-    setScreen("editor");
+    setScreen("profile");
   };
 
   const cancelTierSelection = () => {
@@ -910,6 +1086,7 @@ export function App() {
     setRoadmapId(null);
     setSavedSignature(JSON.stringify(EMPTY_ROADMAP));
     setRoadmapMutation({ status: "idle", error: "", message: "" });
+    setDraftGeneration({ status: "idle", error: "", summary: null });
     resetFeedbackUi();
     moveFocus.current = true;
     setScreen("library");
@@ -918,6 +1095,7 @@ export function App() {
   const openRoadmap = async (item) => {
     setOpeningRoadmapId(item.id);
     setRoadmaps((current) => ({ ...current, error: "" }));
+    setDraftGeneration({ status: "idle", error: "", summary: null });
     try {
       const response = await fetch(`/api/roadmaps/${encodeURIComponent(item.id)}`, { headers: { accept: "application/json" } });
       const data = await readApiJson(response);
@@ -968,6 +1146,7 @@ export function App() {
     if (hasUnsavedWork && !window.confirm("저장하지 않은 변경사항이 있습니다. 로드맵 목록으로 이동할까요?")) return;
     setCatalogForm(null);
     setCatalogFormDirty(false);
+    setDraftGeneration({ status: "idle", error: "", summary: null });
     resetFeedbackUi();
     setRoadmapRefresh((current) => current + 1);
     moveFocus.current = true;
@@ -1023,7 +1202,7 @@ export function App() {
     return {
       ...current,
       programs: [...current.programs, {
-        id: globalThis.crypto.randomUUID(), category, title: "", startMonth: 1, endMonth: 1, amountKrw: null, sequence: nextSequence,
+        id: createProgramId(), category, title: "", startMonth: 1, endMonth: 1, amountKrw: null, sequence: nextSequence,
       }],
     };
   });
@@ -1110,7 +1289,7 @@ export function App() {
   const closeProgramFeedback = () => {
     const programId = selectedFeedbackProgramId;
     resetFeedbackUi();
-    requestAnimationFrame(() => globalThis.document.querySelector(`[data-program-id="${programId}"] .roadmap-event__main`)?.focus());
+    requestAnimationFrame(() => globalThis.document.querySelector(`[data-feedback-id="${programId}"]`)?.focus());
   };
 
   const authenticateFeedbackLead = async (event) => {
@@ -1219,6 +1398,26 @@ export function App() {
       setFeedbackRefresh((current) => current + 1);
     } catch (error) {
       setFeedbackMutation({ status: "error", error: error.message || "피드백 상태를 변경하지 못했습니다." });
+    }
+  };
+
+  const resolveCompletedFeedback = async () => {
+    if (!roadmapId || !feedbackSession.authenticated) return;
+    setFeedbackMutation({ status: "saving", error: "" });
+    try {
+      const response = await fetch(`/api/roadmaps/${encodeURIComponent(roadmapId)}/feedback/resolve-completed`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json", accept: "application/json", "x-aio-feedback-action": "1" },
+        body: "{}",
+      });
+      const data = await readApiJson(response);
+      if (response.status === 401) setFeedbackSession({ status: "ready", authenticated: false });
+      if (!response.ok) throw new Error(data.error || "일괄 해결 확인에 실패했습니다.");
+      setFeedbackMutation({ status: "idle", error: "" });
+      setFeedbackRefresh((current) => current + 1);
+    } catch (error) {
+      setFeedbackMutation({ status: "error", error: error.message || "일괄 해결 확인에 실패했습니다." });
     }
   };
 
@@ -1410,6 +1609,31 @@ export function App() {
     );
   }
 
+  if (screen === "profile") {
+    return (
+      <main className="tier-choice tier-choice--profile no-print" aria-labelledby="client-profile-heading">
+        <div className="tier-choice__panel tier-choice__panel--profile">
+          <div>
+            <h1 id="client-profile-heading" ref={profileHeading} tabIndex="-1">고객 프로필 입력</h1>
+            <p>{tierLabel[pendingTier]} 로드맵 초안에 사용할 업종, 지역, 여성기업 여부, 업력을 입력하세요.</p>
+          </div>
+          <ClientProfileForm
+            profile={clientProfileDraft}
+            options={catalogOptions}
+            state={draftGeneration}
+            onChange={setClientProfileDraft}
+            onBack={() => {
+              moveFocus.current = true;
+              setScreen("tier");
+            }}
+            onSubmit={generateRoadmapDraft}
+          />
+          {catalogOptions.error ? <p className="catalog-notice catalog-notice--error" role="alert">{catalogOptions.error}</p> : null}
+        </div>
+      </main>
+    );
+  }
+
   if (screen === "tier") {
     return (
       <main className="tier-choice no-print" aria-labelledby="tier-choice-heading">
@@ -1493,7 +1717,14 @@ export function App() {
             <article className="roadmap-sheet" aria-label={`${layout.document.clientName || "미지정"} 연간 로드맵`}>
               <header className="sheet-header">
                 <img className="brand-logo" src="/assets/anp-consulting-logo.png" alt="ANP Consulting" />
-                <h1>{`올인원 컨설팅 서비스 연간 로드맵_${layout.document.clientName || "클라이언트명"}`}</h1>
+                <h1>
+                  <button type="button" className="roadmap-feedback-trigger" data-feedback-id="roadmap" onClick={() => openProgramFeedback("roadmap")}>
+                    {`올인원 컨설팅 서비스 연간 로드맵_${layout.document.clientName || "클라이언트명"}`}
+                    {feedbackByProgram.roadmap && feedbackByProgram.roadmap.status !== "resolved" ? (
+                      <span className="roadmap-event__feedback-indicator roadmap-event__feedback-indicator--unresolved roadmap-feedback-indicator--scope no-print">수정 필요</span>
+                    ) : null}
+                  </button>
+                </h1>
                 <p>Road to funds</p>
               </header>
 
@@ -1509,7 +1740,7 @@ export function App() {
                   <div className="watermark">ANP CONSULTING</div>
                   {layout.sections.map((section) => (
                     <div className={`roadmap-section roadmap-section--${section.key}`} key={section.key}>
-                      <div className="roadmap-section__label">{section.label}</div>
+                      <button type="button" className="roadmap-section__label roadmap-feedback-trigger" data-feedback-id={`category:${section.key}`} onClick={() => openProgramFeedback(`category:${section.key}`)}>{section.label}{feedbackByProgram[`category:${section.key}`] && feedbackByProgram[`category:${section.key}`].status !== "resolved" ? <span className="roadmap-event__feedback-indicator roadmap-event__feedback-indicator--unresolved roadmap-feedback-indicator--scope no-print">수정 필요</span> : null}</button>
                       <div className="roadmap-section__timeline">
                         {section.lanes.map((lane, laneIndex) => (
                           <div
@@ -1582,8 +1813,23 @@ export function App() {
           ) : null}
 
           <section className="authoring-panel no-print" aria-labelledby="roadmap-editor-heading">
-            <h2 id="roadmap-editor-heading" ref={roadmapHeading} tabIndex="-1">로드맵 편집</h2>
-            <p className="tier-badge tier-badge--editor no-print" aria-label="로드맵 유형">{tierLabel[documentTier]}</p>
+            <div className="authoring-panel__heading">
+              <h2 id="roadmap-editor-heading" ref={roadmapHeading} tabIndex="-1">로드맵 편집</h2>
+              <p className="tier-badge tier-badge--editor no-print" aria-label="로드맵 유형">{tierLabel[documentTier]}</p>
+              {feedbackSession.authenticated && feedback.items.some((item) => item.status === "completed") ? (
+                <button type="button" className="button-primary feedback-bulk-resolve no-print" disabled={feedbackMutation.status === "saving"} onClick={resolveCompletedFeedback}>
+                  {feedbackMutation.status === "saving" ? "처리 중" : "수정 완료 피드백 일괄 해결 확인"}
+                </button>
+              ) : null}
+            </div>
+            {draftGeneration.summary ? (
+              <dl className="draft-summary" aria-label="초안 생성 결과">
+                <div><dt>카탈로그</dt><dd>{draftGeneration.summary.catalogTotal ?? 0}개 · {draftGeneration.summary.months?.startMonth ?? 1}~{draftGeneration.summary.months?.endMonth ?? 12}월</dd></div>
+                {(draftGeneration.summary.categories ?? []).map(({ key, eligibleCount, placedCount }) => (
+                  <div key={key}><dt>{categoryLabel[key]}</dt><dd>{eligibleCount} / {placedCount}</dd></div>
+                ))}
+              </dl>
+            ) : null}
             <div className="authoring-header">
               <label>
                 <span>클라이언트명</span>
@@ -1624,8 +1870,10 @@ export function App() {
           </section>
 
           <FeedbackPanel
-            program={selectedFeedbackProgram}
+            program={selectedFeedbackThread || selectedFeedbackIsVirtual ? selectedFeedbackProgram : null}
             thread={selectedFeedbackThread}
+            draft={feedbackDraft}
+            roadmapSaved={Boolean(roadmapId)}
             leadAuthenticated={feedbackSession.authenticated}
             leadPassword={leadPassword}
             reworkDraft={reworkDraft}
@@ -1636,6 +1884,9 @@ export function App() {
             onLogout={logoutFeedbackLead}
             onReworkDraftChange={setReworkDraft}
             onAction={performFeedbackAction}
+            onDraftChange={setFeedbackDraft}
+            onSubmit={submitInitialFeedback}
+            onSaveRoadmap={saveRoadmap}
           />
         </>
       ) : (
