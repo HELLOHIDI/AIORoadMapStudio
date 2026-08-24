@@ -31,6 +31,22 @@ test("matches industry and region by intersection while empty program tags stay 
   assert.equal(result.categories.find(({ key }) => key === "business").eligibleCount, 2);
 });
 
+test("treats nationwide (전국) programs as matching every client region", () => {
+  const result = selectRoadmapPrograms({
+    client: { industries: ["AI"], regions: ["충남", "당진"], tenureYears: 1 },
+    programs: [
+      program("nationwide-voucher", { category: "voucher", regions: ["전국"] }),
+      program("regional-voucher", { category: "voucher", regions: ["충남"] }),
+      program("other-region-voucher", { category: "voucher", regions: ["부산"] }),
+    ],
+  });
+
+  assert.deepEqual(
+    new Set(result.programs.map(({ id }) => id)),
+    new Set(["nationwide-voucher", "regional-voucher"]),
+  );
+});
+
 test("excludes clearly women-only targets for non-women clients but keeps women-preferred programs", () => {
   const programs = [
     program("women-only", { target: "women-only founders", amountKrw: 3_000_000 }),
