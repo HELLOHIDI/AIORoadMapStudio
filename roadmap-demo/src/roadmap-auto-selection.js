@@ -9,23 +9,13 @@ const PRELAUNCH = /(?:예비\s*창업자?|창업\s*예정|사업자\s*등록\s*�
 const NATIONWIDE = "전국";
 const ALL_INDUSTRIES = "모든 영역";
 
-function tagsMatch(programTags, clientTags) {
-  if (!Array.isArray(programTags) || programTags.length === 0) return true;
+// Returns "exact" for a real tag intersection, "wildcard" for wildcard/empty-tag
+// passes, and null when the program does not match the client at all.
+function tagMatchGrade(programTags, clientTags, wildcard) {
+  if (!Array.isArray(programTags) || programTags.length === 0) return "wildcard";
   const client = new Set(Array.isArray(clientTags) ? clientTags : []);
-  return programTags.some((tag) => client.has(tag));
-}
-
-function wildcardTagsMatch(programTags, clientTags, wildcard) {
-  if (Array.isArray(programTags) && programTags.includes(wildcard)) return true;
-  return tagsMatch(programTags, clientTags);
-}
-
-function regionsMatch(programRegions, clientRegions) {
-  return wildcardTagsMatch(programRegions, clientRegions, NATIONWIDE);
-}
-
-function industriesMatch(programIndustries, clientIndustries) {
-  return wildcardTagsMatch(programIndustries, clientIndustries, ALL_INDUSTRIES);
+  if (programTags.some((tag) => client.has(tag))) return "exact";
+  return programTags.includes(wildcard) ? "wildcard" : null;
 }
 
 function programText(program) {
@@ -85,6 +75,7 @@ function tenureFit(program, client) {
 
 function rank(a, b) {
   return Number(b.mainPackageMatch) - Number(a.mainPackageMatch)
+    || b.matchScore - a.matchScore
     || (Number(b.program.amountKrw) || 0) - (Number(a.program.amountKrw) || 0)
     || String(a.program.id ?? "").localeCompare(String(b.program.id ?? ""))
     || String(a.program.title ?? "").localeCompare(String(b.program.title ?? ""));
@@ -95,12 +86,18 @@ export function selectRoadmapPrograms({ programs = [], client = {}, tier = "prem
   const categoryKeys = new Set(categories.map(({ key }) => key));
   const eligible = programs.flatMap((program) => {
     const fit = tenureFit(program, client);
+    const industryGrade = tagMatchGrade(program?.industries, client.industries, ALL_INDUSTRIES);
+    const regionGrade = tagMatchGrade(program?.regions, client.regions, NATIONWIDE);
     if (!categoryKeys.has(program?.category)
-      || !industriesMatch(program.industries, client.industries)
-      || !regionsMatch(program.regions, client.regions)
+      || industryGrade === null
+      || regionGrade === null
       || excludesByWomenOnly(program, client)
       || !fit.eligible) return [];
-    return [{ program, mainPackageMatch: program.mainPackage === true && fit.matched }];
+    return [{
+      program,
+      mainPackageMatch: program.mainPackage === true && fit.matched,
+      matchScore: Number(industryGrade === "exact") + Number(regionGrade === "exact"),
+    }];
   });
   const selected = [];
 
