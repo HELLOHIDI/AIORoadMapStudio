@@ -30,6 +30,7 @@ export const DETAILED_INDUSTRY_OPTIONS = Object.freeze(
 );
 
 export const INDUSTRY_OPTIONS = Object.freeze([
+  "모든 영역",
   "AI·디지털", "바이오·헬스케어", "제조·소부장", "모빌리티·로봇",
   "에너지·환경", "콘텐츠·관광", "유통·소비재", "농림·수산·해양",
   "금융·비즈니스서비스", "건설·공간", "국방·우주", "교육·사회서비스",

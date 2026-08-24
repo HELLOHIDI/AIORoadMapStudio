@@ -7,6 +7,7 @@ const WOMEN_NOT_ONLY = /(?:여성\s*(?:기업\s*)?(?:우대|포함)|women[-\s]?(
 const PRELAUNCH = /(?:예비\s*창업자?|창업\s*예정|사업자\s*등록\s*전|pre[-\s]?startup)/iu;
 
 const NATIONWIDE = "전국";
+const ALL_INDUSTRIES = "모든 영역";
 
 function tagsMatch(programTags, clientTags) {
   if (!Array.isArray(programTags) || programTags.length === 0) return true;
@@ -14,9 +15,17 @@ function tagsMatch(programTags, clientTags) {
   return programTags.some((tag) => client.has(tag));
 }
 
+function wildcardTagsMatch(programTags, clientTags, wildcard) {
+  if (Array.isArray(programTags) && programTags.includes(wildcard)) return true;
+  return tagsMatch(programTags, clientTags);
+}
+
 function regionsMatch(programRegions, clientRegions) {
-  if (Array.isArray(programRegions) && programRegions.includes(NATIONWIDE)) return true;
-  return tagsMatch(programRegions, clientRegions);
+  return wildcardTagsMatch(programRegions, clientRegions, NATIONWIDE);
+}
+
+function industriesMatch(programIndustries, clientIndustries) {
+  return wildcardTagsMatch(programIndustries, clientIndustries, ALL_INDUSTRIES);
 }
 
 function programText(program) {
@@ -87,7 +96,7 @@ export function selectRoadmapPrograms({ programs = [], client = {}, tier = "prem
   const eligible = programs.flatMap((program) => {
     const fit = tenureFit(program, client);
     if (!categoryKeys.has(program?.category)
-      || !tagsMatch(program.industries, client.industries)
+      || !industriesMatch(program.industries, client.industries)
       || !regionsMatch(program.regions, client.regions)
       || excludesByWomenOnly(program, client)
       || !fit.eligible) return [];

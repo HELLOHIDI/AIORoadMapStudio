@@ -128,9 +128,10 @@ test("keeps incomplete source text in the source-correction path", () => {
 });
 
 test("keeps the upper-industry tag list compact and unique", () => {
-  assert.equal(INDUSTRY_OPTIONS.length, 12);
+  assert.equal(INDUSTRY_OPTIONS.length, 13);
   assert.equal(new Set(INDUSTRY_OPTIONS).size, INDUSTRY_OPTIONS.length);
   assert.ok(INDUSTRY_OPTIONS.includes("농림·수산·해양"));
+  assert.ok(INDUSTRY_OPTIONS.includes("모든 영역"));
   for (const tag of NON_INDUSTRY_OPTIONS) assert.equal(INDUSTRY_OPTIONS.includes(tag), false);
   assert.equal(REGION_OPTIONS.length, 42);
   assert.equal(new Set(REGION_OPTIONS).size, 42);
