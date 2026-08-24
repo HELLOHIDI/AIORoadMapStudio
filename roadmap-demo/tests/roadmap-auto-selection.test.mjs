@@ -63,6 +63,35 @@ test("treats all-industries (모든 영역) programs as matching every client in
   );
 });
 
+test("ranks exact matches above partial and full wildcard matches regardless of amount", () => {
+  const result = selectRoadmapPrograms({
+    client: { industries: ["AI·디지털"], regions: ["충남"], tenureYears: 1 },
+    programs: [
+      program("full-wildcard", { industries: ["모든 영역"], regions: ["전국"], amountKrw: 90_000_000 }),
+      program("partial-wildcard", { industries: ["AI·디지털"], regions: ["전국"], amountKrw: 50_000_000 }),
+      program("exact", { industries: ["AI·디지털"], regions: ["충남"], amountKrw: 1_000_000 }),
+      program("exact-bigger", { industries: ["AI·디지털"], regions: ["충남"], amountKrw: 2_000_000 }),
+    ],
+  });
+
+  assert.deepEqual(
+    result.programs.map(({ id }) => id),
+    ["exact-bigger", "exact", "partial-wildcard", "full-wildcard"],
+  );
+});
+
+test("keeps the main package ahead of exact matches in the ranking", () => {
+  const result = selectRoadmapPrograms({
+    client: { industries: ["AI·디지털"], regions: ["충남"], tenureYears: 1 },
+    programs: [
+      program("exact", { industries: ["AI·디지털"], regions: ["충남"], amountKrw: 90_000_000 }),
+      program("main-package-wildcard", { mainPackage: true, target: "창업 후 3년 미만 기업", industries: ["모든 영역"], regions: ["전국"], amountKrw: 1_000_000 }),
+    ],
+  });
+
+  assert.deepEqual(result.programs.map(({ id }) => id), ["main-package-wildcard", "exact"]);
+});
+
 test("excludes clearly women-only targets for non-women clients but keeps women-preferred programs", () => {
   const programs = [
     program("women-only", { target: "women-only founders", amountKrw: 3_000_000 }),
