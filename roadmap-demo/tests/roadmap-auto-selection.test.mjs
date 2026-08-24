@@ -47,6 +47,22 @@ test("treats nationwide (전국) programs as matching every client region", () =
   );
 });
 
+test("treats all-industries (모든 영역) programs as matching every client industry", () => {
+  const result = selectRoadmapPrograms({
+    client: { industries: ["바이오·헬스케어"], regions: ["Seoul"], tenureYears: 1 },
+    programs: [
+      program("all-industries", { industries: ["모든 영역"] }),
+      program("matching-industry", { industries: ["바이오·헬스케어"] }),
+      program("other-industry", { industries: ["AI·디지털"] }),
+    ],
+  });
+
+  assert.deepEqual(
+    new Set(result.programs.map(({ id }) => id)),
+    new Set(["all-industries", "matching-industry"]),
+  );
+});
+
 test("excludes clearly women-only targets for non-women clients but keeps women-preferred programs", () => {
   const programs = [
     program("women-only", { target: "women-only founders", amountKrw: 3_000_000 }),
