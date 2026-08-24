@@ -87,7 +87,8 @@ test("requires tier and profile before generating a roadmap draft", () => {
   assert.ok(app.includes("onSubmit={generateRoadmapDraft}"));
   assert.ok(app.includes("const generateRoadmapDraft = async (event) =>"));
   assert.ok(app.includes("const profile = cleanClientProfile(clientProfileDraft)"));
-  assert.ok(app.includes("const catalogSnapshot = await fetchSharedCatalog()"));
+  assert.ok(app.includes("const catalogSnapshot = await fetchSharedCatalog("));
+  assert.ok(app.includes('className="draft-progress"'));
   assert.ok(app.includes("selectRoadmapPrograms({"));
   assert.ok(app.includes("tier: pendingTier"));
   assert.ok(app.includes("clientProfile: profile"));

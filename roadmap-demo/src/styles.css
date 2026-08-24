@@ -960,6 +960,20 @@ button {
   background: #fff7df;
 }
 
+.draft-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  color: #4a5568;
+}
+
+.draft-progress progress {
+  flex: 1;
+  height: 8px;
+  accent-color: #5b9bd5;
+}
+
 .roadmap-save-status {
   width: min(1120px, calc(100% - 32px));
   margin: 8px auto 0;

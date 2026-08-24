@@ -562,6 +562,18 @@ function ClientProfileForm({ profile, options, state, onChange, onBack, onSubmit
         </fieldset>
       </fieldset>
       {state.error ? <p className="catalog-notice catalog-notice--error" role="alert">{state.error}</p> : null}
+      {state.status === "loading" || state.status === "generating" ? (
+        <div className="draft-progress" role="status">
+          {state.status === "loading" && state.progress?.total
+            ? <progress value={state.progress.loaded} max={state.progress.total} />
+            : <progress />}
+          <span>
+            {state.status === "loading"
+              ? `카탈로그 불러오는 중${state.progress?.total ? ` (${state.progress.loaded.toLocaleString()}/${state.progress.total.toLocaleString()})` : ""}`
+              : "초안 생성 중"}
+          </span>
+        </div>
+      ) : null}
       <div className="tier-choice__actions">
         <button type="button" className="button-secondary" onClick={onBack} disabled={state.status === "loading" || state.status === "generating"}>이전</button>
         <button type="submit" className="button-primary" disabled={state.status === "loading" || state.status === "generating"}>
@@ -971,7 +983,7 @@ export function App() {
     setFeedbackMutation({ status: "idle", error: "" });
   };
 
-  const fetchSharedCatalog = async () => {
+  const fetchSharedCatalog = async (onProgress) => {
     const all = [];
     for (let page = 0; page < CATALOG_PAGE_CAP; page += 1) {
       const params = new URLSearchParams({ limit: String(CATALOG_PAGE_LIMIT), offset: String(page * CATALOG_PAGE_LIMIT) });
@@ -979,6 +991,7 @@ export function App() {
       const data = await readApiJson(response);
       if (!response.ok) throw new Error(data.error || "카탈로그를 불러오지 못했습니다.");
       all.push(...(data.items || []));
+      onProgress?.(all.length, Number(data.total || 0));
       if (all.length >= Number(data.total || 0) || !data.items?.length) {
         return { programs: all, total: Number(data.total || all.length), months: { startMonth: 1, endMonth: 12 } };
       }
@@ -1012,10 +1025,12 @@ export function App() {
   const generateRoadmapDraft = async (event) => {
     event?.preventDefault();
     const profile = cleanClientProfile(clientProfileDraft);
-    setDraftGeneration({ status: "loading", error: "", summary: null });
+    setDraftGeneration({ status: "loading", error: "", summary: null, progress: null });
     try {
-      const catalogSnapshot = await fetchSharedCatalog();
-      setDraftGeneration({ status: "generating", error: "", summary: null });
+      const catalogSnapshot = await fetchSharedCatalog((loaded, total) => {
+        setDraftGeneration({ status: "loading", error: "", summary: null, progress: { loaded, total } });
+      });
+      setDraftGeneration({ status: "generating", error: "", summary: null, progress: null });
       const selection = selectRoadmapPrograms({
         programs: catalogSnapshot.programs,
         client: profile,
