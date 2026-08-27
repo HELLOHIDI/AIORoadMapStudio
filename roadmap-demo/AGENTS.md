@@ -88,6 +88,14 @@ Build app UI in `src/`. Preserve the Sites packaging and static-fallback contrac
 - Keep the marker informational and reversible. It must not warn, block, hide, filter, sort, reorder, or alter roadmap selection.
 - Do not copy verification into roadmap programs or expose it in PDF/PPTX output. Do not add identity, evidence, history, authentication, or approval workflow without a new explicit product decision.
 
+## Automatic roadmap matching contract
+
+- Treat industry and region matches as scoring signals instead of hard eligibility filters. Keep only explicit women-only and inferred tenure mismatches as hard exclusions.
+- Rank recommendation candidates by total match score descending, then use main-package status, exact-match count, amount, ID, and title as deterministic tie-breakers.
+- Recognize an administrative locality as matching a program tagged with its parent province, below an exact locality match and above a nationwide match.
+- Return up to 35 authoring-only recommendation candidates: at least 20 business and 10 voucher candidates when enough eligible records exist, no more than 5 IP candidates, and no certification candidates. Fill unused IP capacity with additional business or voucher candidates.
+- Preserve the fixed A4 roadmap row ceilings. Auto-place only the highest-ranked candidates that fit those rows and expose the remaining recommendations, scores, and scoring reasons in the authoring UI for manual replacement.
+
 ## Government support-program ingestion contract
 
 - This is the binding policy for the next full catalog ingestion. Do not treat the prior 10-minute crawl as a resumable production run; restart from row 1 after re-filtering the source workbook.

@@ -1050,7 +1050,13 @@ export function App() {
       const summary = {
         catalogTotal: catalogSnapshot.total,
         months: catalogSnapshot.months,
-        categories: selection.categories.map(({ key, eligibleCount, placedCount }) => ({ key, eligibleCount, placedCount })),
+        categories: selection.categories.map(({ key, eligibleCount, recommendationCount, placedCount }) => ({
+          key,
+          eligibleCount,
+          recommendationCount,
+          placedCount,
+        })),
+        recommendations: selection.recommendations,
       };
       setDocument(draft);
       setRoadmapId(null);
@@ -1232,6 +1238,33 @@ export function App() {
       return { ...current, programs: [...current.programs, copyCatalogProgram(program, nextSequence)] };
     });
     setCatalogNotice({ tone: "success", message: `“${program.title}”을 로드맵에 독립 복사본으로 추가했습니다.`, returnToRoadmap: true });
+  };
+
+  const addRecommendedProgram = (program) => {
+    const category = allowedCategories.find(({ key }) => key === program.category);
+    if (!category) {
+      setLayoutNotice("현재 로드맵 유형에서 사용할 수 없는 사업입니다.");
+      return;
+    }
+    const alreadyPlaced = document.programs.some((item) => (
+      item.category === program.category
+      && item.title === program.title
+      && (item.link || "") === (program.link || "")
+    ));
+    const categoryCount = document.programs.filter((item) => item.category === program.category).length;
+    if (alreadyPlaced) {
+      setLayoutNotice("이미 로드맵에 배치된 추천 사업입니다.");
+      return;
+    }
+    if (categoryCount >= category.maxRows) {
+      setLayoutNotice(`${category.label} 구분은 최대 ${category.maxRows}개까지 배치할 수 있습니다. 기존 사업을 제거한 뒤 추가해 주세요.`);
+      return;
+    }
+    setDocument((current) => {
+      const nextSequence = current.programs.reduce((max, item) => Math.max(max, item.sequence), -1) + 1;
+      return { ...current, programs: [...current.programs, copyCatalogProgram(program, nextSequence)] };
+    });
+    setLayoutNotice(`“${program.title}”을 로드맵에 추가했습니다.`);
   };
 
   const deleteProgram = (id) => setDocument((current) => ({
@@ -1684,6 +1717,14 @@ export function App() {
   const filterSummary = (values) => values.length === 1 ? values[0] : values.length ? `${values.length}개 선택` : "전체";
   const hasCatalogFilters = Boolean(catalogCategory !== firstCatalogCategory || catalogQuery || catalogPeriodChanged || catalogIndustries.length || catalogRegions.length || catalogBusinessSubcategories.length);
   const activePrograms = document.programs.filter((program) => program.category === activeCategory && allowedCategoryKeys.has(program.category));
+  const draftRecommendations = draftGeneration.summary?.recommendations ?? [];
+  const placedRecommendationKeys = new Set(document.programs.map((program) => (
+    `${program.category}\u0000${program.title}\u0000${program.link || ""}`
+  )));
+  const categoryPlacementCounts = new Map(allowedCategories.map(({ key }) => [
+    key,
+    document.programs.filter((program) => program.category === key).length,
+  ]));
   const draggingProgram = document.programs.find((program) => program.id === draggingProgramId);
 
   return (
@@ -1840,10 +1881,43 @@ export function App() {
             {draftGeneration.summary ? (
               <dl className="draft-summary" aria-label="초안 생성 결과">
                 <div><dt>카탈로그</dt><dd>{draftGeneration.summary.catalogTotal ?? 0}개 · {draftGeneration.summary.months?.startMonth ?? 1}~{draftGeneration.summary.months?.endMonth ?? 12}월</dd></div>
-                {(draftGeneration.summary.categories ?? []).map(({ key, eligibleCount, placedCount }) => (
-                  <div key={key}><dt>{categoryLabel[key]}</dt><dd>{eligibleCount} / {placedCount}</dd></div>
+                {(draftGeneration.summary.categories ?? []).map(({ key, eligibleCount, recommendationCount, placedCount }) => (
+                  <div key={key}>
+                    <dt>{categoryLabel[key]}</dt>
+                    <dd>적격 {eligibleCount} · 후보 {recommendationCount} · 배치 {placedCount}</dd>
+                  </div>
                 ))}
               </dl>
+            ) : null}
+            {draftRecommendations.length ? (
+              <details className="auto-match-recommendations" open>
+                <summary>점수순 추천 후보 {draftRecommendations.length}개</summary>
+                <p>사업화 최소 20개, 바우처 최소 10개, IP 최대 5개로 구성하며 기업인증은 제외합니다. 카테고리별 로드맵 행이 가득 찬 경우 기존 사업을 제거한 뒤 교체할 수 있습니다.</p>
+                <div className="auto-match-recommendations__list">
+                  {draftRecommendations.map((program, index) => {
+                    const category = allowedCategories.find(({ key }) => key === program.category);
+                    const recommendationKey = `${program.category}\u0000${program.title}\u0000${program.link || ""}`;
+                    const placed = placedRecommendationKeys.has(recommendationKey);
+                    const categoryFull = !category || (categoryPlacementCounts.get(program.category) ?? 0) >= category.maxRows;
+                    return (
+                      <article className="auto-match-recommendation" key={program.id}>
+                        <span className="auto-match-recommendation__rank">{index + 1}</span>
+                        <div>
+                          <div className="auto-match-recommendation__title">
+                            <span>{categoryLabel[program.category]}</span>
+                            <h3>{program.title}</h3>
+                          </div>
+                          <p>{program.matchReasons?.length ? program.matchReasons.join(" · ") : "기본 후보"}</p>
+                        </div>
+                        <strong>{program.matchScore}점</strong>
+                        <button type="button" onClick={() => addRecommendedProgram(program)} disabled={placed || categoryFull}>
+                          {placed ? "배치됨" : categoryFull ? "행 가득 참" : "로드맵에 추가"}
+                        </button>
+                      </article>
+                    );
+                  })}
+                </div>
+              </details>
             ) : null}
             <div className="authoring-header">
               <label>

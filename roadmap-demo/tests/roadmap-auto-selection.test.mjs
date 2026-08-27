@@ -16,7 +16,7 @@ const program = (id, extra = {}) => ({
   ...extra,
 });
 
-test("matches industry and region by intersection while empty program tags stay eligible", () => {
+test("scores exact tag intersections above mismatches without discarding lower-score candidates", () => {
   const result = selectRoadmapPrograms({
     client: { industries: ["AI"], regions: ["Busan"], tenureYears: 1 },
     programs: [
@@ -27,8 +27,10 @@ test("matches industry and region by intersection while empty program tags stay 
     ],
   });
 
-  assert.deepEqual(new Set(result.programs.map(({ id }) => id)), new Set(["matching", "empty-tags"]));
-  assert.equal(result.categories.find(({ key }) => key === "business").eligibleCount, 2);
+  assert.deepEqual(result.recommendations.map(({ id }) => id), ["matching", "wrong-region", "wrong-industry", "empty-tags"]);
+  assert.equal(result.recommendations[0].matchScore, 70);
+  assert.deepEqual(result.recommendations[0].matchReasons, ["업종 정확 일치 +40", "지역 정확 일치 +30"]);
+  assert.equal(result.categories.find(({ key }) => key === "business").eligibleCount, 4);
 });
 
 test("treats nationwide (전국) programs as matching every client region", () => {
@@ -47,7 +49,7 @@ test("treats nationwide (전국) programs as matching every client region", () =
   );
 });
 
-test("treats all-industries (모든 영역) programs as matching every client industry", () => {
+test("scores all-industries (모든 영역) above an unrelated industry", () => {
   const result = selectRoadmapPrograms({
     client: { industries: ["바이오·헬스케어"], regions: ["Seoul"], tenureYears: 1 },
     programs: [
@@ -57,10 +59,12 @@ test("treats all-industries (모든 영역) programs as matching every client in
     ],
   });
 
-  assert.deepEqual(
-    new Set(result.programs.map(({ id }) => id)),
-    new Set(["all-industries", "matching-industry"]),
-  );
+  assert.deepEqual(result.programs.map(({ id }) => id), ["matching-industry", "all-industries", "other-industry"]);
+  assert.deepEqual(result.recommendations.map(({ id, matchScore }) => [id, matchScore]), [
+    ["matching-industry", 70],
+    ["all-industries", 40],
+    ["other-industry", 30],
+  ]);
 });
 
 test("ranks exact matches above partial and full wildcard matches regardless of amount", () => {
@@ -80,7 +84,7 @@ test("ranks exact matches above partial and full wildcard matches regardless of 
   );
 });
 
-test("keeps the main package ahead of exact matches in the ranking", () => {
+test("uses main package as score instead of overriding a stronger exact match", () => {
   const result = selectRoadmapPrograms({
     client: { industries: ["AI·디지털"], regions: ["충남"], tenureYears: 1 },
     programs: [
@@ -89,7 +93,11 @@ test("keeps the main package ahead of exact matches in the ranking", () => {
     ],
   });
 
-  assert.deepEqual(result.programs.map(({ id }) => id), ["main-package-wildcard", "exact"]);
+  assert.deepEqual(result.programs.map(({ id }) => id), ["exact", "main-package-wildcard"]);
+  assert.deepEqual(result.recommendations.map(({ id, matchScore }) => [id, matchScore]), [
+    ["exact", 70],
+    ["main-package-wildcard", 60],
+  ]);
 });
 
 test("excludes clearly women-only targets for non-women clients but keeps women-preferred programs", () => {
@@ -119,7 +127,7 @@ test("infers tenure from target text and falls back to inclusive when it cannot 
   assert.deepEqual(result.programs.map(({ id }) => id), ["over-three", "unknown-tenure"]);
 });
 
-test("prioritizes the matching main package before amount and preserves months", () => {
+test("orders by total score before amount and preserves months", () => {
   const result = selectRoadmapPrograms({
     client: { industries: ["AI"], regions: ["Seoul"], tenureYears: 2 },
     programs: [
@@ -129,11 +137,77 @@ test("prioritizes the matching main package before amount and preserves months",
     ],
   });
 
-  assert.deepEqual(result.programs.map(({ id }) => id), ["main-package", "high-amount", "tenure-specific"]);
+  assert.deepEqual(result.programs.map(({ id }) => id), ["main-package", "tenure-specific", "high-amount"]);
   assert.deepEqual(
     result.programs.map(({ id, startMonth, endMonth }) => [id, startMonth, endMonth]),
-    [["main-package", 3, 6], ["high-amount", 8, 9], ["tenure-specific", 5, 7]],
+    [["main-package", 3, 6], ["tenure-specific", 5, 7], ["high-amount", 8, 9]],
   );
+});
+
+test("scores a client locality against its parent province", () => {
+  const result = selectRoadmapPrograms({
+    client: { industries: ["AI"], regions: ["부산진"], tenureYears: 1 },
+    programs: [
+      program("province", { regions: ["부산"] }),
+      program("nationwide", { regions: ["전국"] }),
+      program("other", { regions: ["서울"] }),
+    ],
+  });
+
+  assert.deepEqual(result.recommendations.map(({ id, matchScore }) => [id, matchScore]), [
+    ["province", 60],
+    ["nationwide", 55],
+    ["other", 40],
+  ]);
+  assert.ok(result.recommendations[0].matchReasons.includes("상위 시·도 일치 +20"));
+});
+
+test("recommends up to 35 scored candidates with business and voucher minimums, IP cap, and no certification", () => {
+  const programs = [
+    ...Array.from({ length: 25 }, (_, index) => program(`business-${String(index).padStart(2, "0")}`, { amountKrw: 25_000_000 - index })),
+    ...Array.from({ length: 12 }, (_, index) => program(`voucher-${String(index).padStart(2, "0")}`, { category: "voucher", amountKrw: 12_000_000 - index })),
+    ...Array.from({ length: 8 }, (_, index) => program(`ip-${String(index).padStart(2, "0")}`, { category: "ip", amountKrw: 8_000_000 - index })),
+    ...Array.from({ length: 3 }, (_, index) => program(`cert-${index}`, { category: "certification" })),
+  ];
+  const result = selectRoadmapPrograms({
+    client: { industries: ["AI"], regions: ["Seoul"], tenureYears: 1 },
+    programs,
+  });
+  const counts = result.recommendations.reduce((current, item) => ({
+    ...current,
+    [item.category]: (current[item.category] ?? 0) + 1,
+  }), {});
+
+  assert.equal(result.recommendations.length, 35);
+  assert.equal(counts.business, 20);
+  assert.equal(counts.voucher, 10);
+  assert.equal(counts.ip, 5);
+  assert.equal(counts.certification, undefined);
+  assert.ok(result.recommendations.every((item, index, items) => index === 0 || items[index - 1].matchScore >= item.matchScore));
+  assert.deepEqual(result.programs.reduce((current, item) => ({
+    ...current,
+    [item.category]: (current[item.category] ?? 0) + 1,
+  }), {}), { business: 4, voucher: 2, ip: 2 });
+});
+
+test("fills unused IP capacity with additional business or voucher candidates", () => {
+  const result = selectRoadmapPrograms({
+    client: { industries: ["AI"], regions: ["Seoul"], tenureYears: 1 },
+    programs: [
+      ...Array.from({ length: 30 }, (_, index) => program(`business-${index}`)),
+      ...Array.from({ length: 12 }, (_, index) => program(`voucher-${index}`, { category: "voucher" })),
+      program("only-ip", { category: "ip" }),
+    ],
+  });
+  const counts = result.recommendations.reduce((current, item) => ({
+    ...current,
+    [item.category]: (current[item.category] ?? 0) + 1,
+  }), {});
+
+  assert.equal(result.recommendations.length, 35);
+  assert.equal(counts.ip, 1);
+  assert.ok(counts.business >= 20);
+  assert.ok(counts.voucher >= 10);
 });
 
 test("applies category caps and deterministic amount, id, title tie-breaks", () => {
