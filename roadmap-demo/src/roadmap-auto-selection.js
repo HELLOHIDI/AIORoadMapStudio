@@ -1,4 +1,5 @@
 import { allowedCategoriesForTier } from "./roadmap-policy.js";
+import { ADMINISTRATIVE_REGION_GROUPS } from "../catalog-tag-policy.js";
 
 // This is the single draft-selection policy used by the new-roadmap UI and its tests.
 // ponytail: target-text heuristics are intentionally small; use structured catalog eligibility when data quality warrants it.
@@ -8,14 +9,28 @@ const PRELAUNCH = /(?:예비\s*창업자?|창업\s*예정|사업자\s*등록\s*�
 
 const NATIONWIDE = "전국";
 const ALL_INDUSTRIES = "모든 영역";
+const RECOMMENDATION_LIMIT = 35;
+const RECOMMENDATION_TARGETS = Object.freeze({ business: 20, voucher: 10, ip: 5 });
+const RECOMMENDATION_CATEGORIES = new Set(Object.keys(RECOMMENDATION_TARGETS));
+const regionParentByTag = new Map(ADMINISTRATIVE_REGION_GROUPS.flatMap(({ key, options }) => (
+  options.map((option) => [option, key])
+)));
 
-// Returns "exact" for a real tag intersection, "wildcard" for wildcard/empty-tag
-// passes, and null when the program does not match the client at all.
-function tagMatchGrade(programTags, clientTags, wildcard) {
-  if (!Array.isArray(programTags) || programTags.length === 0) return "wildcard";
+function industryMatchGrade(programTags, clientTags) {
+  if (!Array.isArray(programTags) || programTags.length === 0) return "empty";
   const client = new Set(Array.isArray(clientTags) ? clientTags : []);
   if (programTags.some((tag) => client.has(tag))) return "exact";
-  return programTags.includes(wildcard) ? "wildcard" : null;
+  return programTags.includes(ALL_INDUSTRIES) ? "wildcard" : "none";
+}
+
+function regionMatchGrade(programTags, clientTags) {
+  if (!Array.isArray(programTags) || programTags.length === 0) return "empty";
+  const client = Array.isArray(clientTags) ? clientTags : [];
+  const clientSet = new Set(client);
+  if (programTags.some((tag) => clientSet.has(tag))) return "exact";
+  if (programTags.includes(NATIONWIDE)) return "nationwide";
+  const clientParents = new Set(client.map((tag) => regionParentByTag.get(tag)).filter(Boolean));
+  return programTags.some((tag) => clientParents.has(tag)) ? "parent" : "none";
 }
 
 function programText(program) {
@@ -29,6 +44,11 @@ function isWomenOwned(client) {
 function excludesByWomenOnly(program, client) {
   const source = programText(program);
   return !isWomenOwned(client) && WOMEN_ONLY.test(source) && !WOMEN_NOT_ONLY.test(source);
+}
+
+function isWomenOnly(program) {
+  const source = programText(program);
+  return WOMEN_ONLY.test(source) && !WOMEN_NOT_ONLY.test(source);
 }
 
 function clientTenureYears(client) {
@@ -73,9 +93,55 @@ function tenureFit(program, client) {
   return { eligible: aboveMinimum && belowMaximum, matched: aboveMinimum && belowMaximum };
 }
 
+function scoreProgram(program, client, fit) {
+  const industryGrade = industryMatchGrade(program?.industries, client.industries);
+  const regionGrade = regionMatchGrade(program?.regions, client.regions);
+  const reasons = [];
+  let matchScore = 0;
+
+  if (industryGrade === "exact") {
+    matchScore += 40;
+    reasons.push("업종 정확 일치 +40");
+  } else if (industryGrade === "wildcard") {
+    matchScore += 10;
+    reasons.push("모든 업종 대상 +10");
+  }
+
+  if (regionGrade === "exact") {
+    matchScore += 30;
+    reasons.push("지역 정확 일치 +30");
+  } else if (regionGrade === "parent") {
+    matchScore += 20;
+    reasons.push("상위 시·도 일치 +20");
+  } else if (regionGrade === "nationwide") {
+    matchScore += 15;
+    reasons.push("전국 대상 +15");
+  }
+
+  if (fit.matched) {
+    matchScore += 20;
+    reasons.push("업력 조건 충족 +20");
+  }
+  if (isWomenOwned(client) && isWomenOnly(program)) {
+    matchScore += 10;
+    reasons.push("여성기업 조건 일치 +10");
+  }
+  if (program.mainPackage === true) {
+    matchScore += 15;
+    reasons.push("메인패키지 +15");
+  }
+
+  return {
+    matchScore,
+    matchReasons: reasons,
+    exactMatchCount: Number(industryGrade === "exact") + Number(regionGrade === "exact"),
+  };
+}
+
 function rank(a, b) {
-  return Number(b.mainPackageMatch) - Number(a.mainPackageMatch)
-    || b.matchScore - a.matchScore
+  return b.matchScore - a.matchScore
+    || Number(b.program.mainPackage === true) - Number(a.program.mainPackage === true)
+    || b.exactMatchCount - a.exactMatchCount
     || (Number(b.program.amountKrw) || 0) - (Number(a.program.amountKrw) || 0)
     || String(a.program.id ?? "").localeCompare(String(b.program.id ?? ""))
     || String(a.program.title ?? "").localeCompare(String(b.program.title ?? ""));
@@ -86,29 +152,52 @@ export function selectRoadmapPrograms({ programs = [], client = {}, tier = "prem
   const categoryKeys = new Set(categories.map(({ key }) => key));
   const eligible = programs.flatMap((program) => {
     const fit = tenureFit(program, client);
-    const industryGrade = tagMatchGrade(program?.industries, client.industries, ALL_INDUSTRIES);
-    const regionGrade = tagMatchGrade(program?.regions, client.regions, NATIONWIDE);
     if (!categoryKeys.has(program?.category)
-      || industryGrade === null
-      || regionGrade === null
+      || program?.category === "certification"
       || excludesByWomenOnly(program, client)
       || !fit.eligible) return [];
+    const score = scoreProgram(program, client, fit);
     return [{
       program,
-      mainPackageMatch: program.mainPackage === true && fit.matched,
-      matchScore: Number(industryGrade === "exact") + Number(regionGrade === "exact"),
+      ...score,
     }];
   });
+  const eligibleByCategory = new Map(categories.map(({ key }) => [
+    key,
+    eligible.filter(({ program }) => program.category === key).sort(rank),
+  ]));
+  const recommendationEntries = [];
+  const includedIds = new Set();
+  for (const [key, target] of Object.entries(RECOMMENDATION_TARGETS)) {
+    for (const entry of (eligibleByCategory.get(key) ?? []).slice(0, target)) {
+      recommendationEntries.push(entry);
+      includedIds.add(entry.program.id);
+    }
+  }
+  const remaining = eligible
+    .filter(({ program }) => (program.category === "business" || program.category === "voucher") && !includedIds.has(program.id))
+    .sort(rank)
+    .slice(0, Math.max(0, RECOMMENDATION_LIMIT - recommendationEntries.length));
+  recommendationEntries.push(...remaining);
+  recommendationEntries.sort(rank);
+  const recommendations = recommendationEntries.map(({ program, matchScore, matchReasons }) => ({
+    ...program,
+    matchScore,
+    matchReasons,
+  }));
+  const recommendationIds = new Set(recommendations.map(({ id }) => id));
   const selected = [];
 
   const categorySummaries = categories.map((category) => {
-    const categoryEligible = eligible
-      .filter(({ program }) => program.category === category.key)
-      .sort(rank);
+    const categoryEligible = eligibleByCategory.get(category.key) ?? [];
+    const categoryRecommendations = RECOMMENDATION_CATEGORIES.has(category.key)
+      ? categoryEligible.filter(({ program }) => recommendationIds.has(program.id))
+      : [];
     const reservedRows = Number.isSafeInteger(reservedRowsByCategory[category.key])
       ? Math.max(0, reservedRowsByCategory[category.key])
       : 0;
-    const placed = categoryEligible.slice(0, Math.max(0, category.maxRows - reservedRows)).map(({ program }, index) => ({
+    const placementPool = category.key === "consulting" ? categoryEligible : categoryRecommendations;
+    const placed = placementPool.slice(0, Math.max(0, category.maxRows - reservedRows)).map(({ program }, index) => ({
       ...program,
       sequence: selected.length + index,
     }));
@@ -116,10 +205,11 @@ export function selectRoadmapPrograms({ programs = [], client = {}, tier = "prem
     return {
       key: category.key,
       eligibleCount: categoryEligible.length,
+      recommendationCount: categoryRecommendations.length,
       placedCount: placed.length,
       programs: placed,
     };
   });
 
-  return { programs: selected, categories: categorySummaries };
+  return { programs: selected, recommendations, categories: categorySummaries };
 }
