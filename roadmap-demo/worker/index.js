@@ -11,6 +11,7 @@ import {
 import { formatCatalogBulletText } from "../catalog-readability.js";
 
 const CATALOG_PATH = "/api/catalog-programs";
+const CATALOG_IMPORT_PATH = "/api/catalog-programs/import";
 const CATALOG_OPTIONS_PATH = "/api/catalog-options";
 const ROADMAP_PATH = "/api/roadmaps";
 const FEEDBACK_AUTH_PATH = "/api/feedback-auth/session";
@@ -38,6 +39,10 @@ const FEEDBACK_SESSION_SECONDS = 8 * 60 * 60;
 const FEEDBACK_RETRY_WINDOW_SECONDS = 15 * 60;
 const FEEDBACK_RETRY_LOCK_SECONDS = 15 * 60;
 const FEEDBACK_RETRY_LIMIT = 5;
+const BIZINFO_ORIGIN = "https://www.bizinfo.go.kr";
+const BIZINFO_DETAIL_PATH = "/sii/siia/selectSIIA200Detail.do";
+const BIZINFO_FETCH_TIMEOUT_MS = 8_000;
+const BIZINFO_MAX_HTML_BYTES = 750_000;
 
 function json(data, status = 200, headers = {}) {
   return Response.json(data, { status, headers });
@@ -56,6 +61,227 @@ function resourceId(pathname, basePath) {
 
 function cleanString(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function bizinfoImportError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function validateBizinfoDetailUrl(rawUrl) {
+  if (typeof rawUrl !== "string" || rawUrl.length > 2048) {
+    return { error: bizinfoImportError("BIZINFO_URL_INVALID", "Bizinfo detail URL is invalid.") };
+  }
+
+  let url;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return { error: bizinfoImportError("BIZINFO_URL_INVALID", "Bizinfo detail URL is invalid.") };
+  }
+
+  const params = [...url.searchParams.entries()];
+  const pblancId = url.searchParams.get("pblancId") ?? "";
+  if (url.origin !== BIZINFO_ORIGIN || url.pathname !== BIZINFO_DETAIL_PATH || url.username || url.password
+    || url.port || url.hash || params.length !== 1 || params[0][0] !== "pblancId"
+    || !/^[A-Za-z0-9_-]{1,100}$/.test(pblancId)) {
+    return { error: bizinfoImportError("BIZINFO_URL_NOT_ALLOWED", "Only a valid Bizinfo detail URL is allowed.") };
+  }
+
+  return { value: url };
+}
+
+async function readBoundedResponseText(response, maxBytes) {
+  const contentLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw bizinfoImportError("BIZINFO_RESPONSE_TOO_LARGE", "The Bizinfo response is too large.");
+  }
+
+  if (!response.body) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maxBytes) throw bizinfoImportError("BIZINFO_RESPONSE_TOO_LARGE", "The Bizinfo response is too large.");
+    return new TextDecoder().decode(bytes);
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw bizinfoImportError("BIZINFO_RESPONSE_TOO_LARGE", "The Bizinfo response is too large.");
+      }
+      chunks.push(next.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+async function fetchBizinfoHtml(rawUrl, options = {}) {
+  const validated = validateBizinfoDetailUrl(rawUrl);
+  if (validated.error) throw validated.error;
+
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  const timeoutMs = options.timeoutMs ?? BIZINFO_FETCH_TIMEOUT_MS;
+  const maxBytes = options.maxBytes ?? BIZINFO_MAX_HTML_BYTES;
+  const controller = new AbortController();
+  let timer;
+  const fetchPage = async () => {
+    let url = validated.value;
+    for (let redirectCount = 0; redirectCount <= 2; redirectCount += 1) {
+      const response = await fetchImpl(url, {
+        redirect: "manual",
+        signal: controller.signal,
+        headers: { accept: "text/html,application/xhtml+xml" },
+      });
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location");
+        if (!location || redirectCount === 2) {
+          throw bizinfoImportError("BIZINFO_REDIRECT_NOT_ALLOWED", "The Bizinfo redirect is not allowed.");
+        }
+        const next = validateBizinfoDetailUrl(new URL(location, url).toString());
+        if (next.error) throw bizinfoImportError("BIZINFO_REDIRECT_NOT_ALLOWED", "The Bizinfo redirect is not allowed.");
+        url = next.value;
+        continue;
+      }
+      if (!response.ok) throw bizinfoImportError("BIZINFO_FETCH_FAILED", `Bizinfo returned HTTP ${response.status}.`);
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!/^text\/html(?:\s*;|$)|^application\/xhtml\+xml(?:\s*;|$)/i.test(contentType)) {
+        throw bizinfoImportError("BIZINFO_CONTENT_TYPE_INVALID", "The Bizinfo response is not HTML.");
+      }
+      return { url: url.toString(), html: await readBoundedResponseText(response, maxBytes) };
+    }
+    throw bizinfoImportError("BIZINFO_REDIRECT_NOT_ALLOWED", "The Bizinfo redirect is not allowed.");
+  };
+
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(bizinfoImportError("BIZINFO_FETCH_TIMEOUT", "The Bizinfo request timed out."));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([fetchPage(), timeout]);
+  } catch (error) {
+    if (error?.code) throw error;
+    if (controller.signal.aborted) throw bizinfoImportError("BIZINFO_FETCH_TIMEOUT", "The Bizinfo request timed out.");
+    throw bizinfoImportError("BIZINFO_FETCH_FAILED", "The Bizinfo page could not be fetched.");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function decodeHtmlEntities(value) {
+  const named = { nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" };
+  return value.replace(/&(#x?[\da-f]+|[a-z]+);/gi, (entity, key) => {
+    const normalized = key.toLowerCase();
+    if (named[normalized]) return named[normalized];
+    if (normalized.startsWith("#x")) return String.fromCodePoint(Number.parseInt(normalized.slice(2), 16));
+    if (normalized.startsWith("#")) return String.fromCodePoint(Number.parseInt(normalized.slice(1), 10));
+    return entity;
+  });
+}
+
+function htmlToText(value) {
+  return decodeHtmlEntities(String(value ?? "")
+    .replace(/<(script|style|noscript)\b[\s\S]*?<\/\1>/gi, "")
+    .replace(/<\/?(?:br|p|li|div|tr|h[1-6])\b[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, ""))
+    .replace(/[ \t\f\r]+/g, " ")
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function htmlAttribute(tag, name) {
+  return tag.match(new RegExp(`${name}\\s*=\\s*["']([^"']*)["']`, "i"))?.[1] ?? "";
+}
+
+function metaContent(html, names) {
+  for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
+    const key = (htmlAttribute(tag, "name") || htmlAttribute(tag, "property")).toLowerCase();
+    if (names.has(key)) return htmlToText(htmlAttribute(tag, "content"));
+  }
+  return "";
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function bizinfoSectionText(html, label) {
+  const labelPattern = escapeRegExp(label);
+  const match = html.match(new RegExp(
+    `<span\\b[^>]*class=["'][^"']*\\bs_title\\b[^"']*["'][^>]*>\\s*${labelPattern}\\s*</span>([\\s\\S]*?)(?=<span\\b[^>]*class=["'][^"']*\\bs_title\\b|</ul>)`,
+    "i",
+  ));
+  if (!match) return "";
+  const value = match[1].match(/<div\b[^>]*class=["'][^"']*\btxt\b[^"']*["'][^>]*>([\s\S]*)/i)?.[1] ?? match[1];
+  return htmlToText(value);
+}
+
+function largestKrwAmount(text) {
+  const units = { 원: 1, 만원: 10_000, 백만원: 1_000_000, 천만원: 10_000_000, 억원: 100_000_000 };
+  let largest = null;
+  for (const match of text.matchAll(/([\d][\d,]*(?:\.\d+)?)\s*(억원|천만원|백만원|만원|원)/gu)) {
+    const amount = Number(match[1].replaceAll(",", "")) * units[match[2]];
+    if (Number.isSafeInteger(amount) && amount > 0) largest = largest === null ? amount : Math.max(largest, amount);
+  }
+  return largest;
+}
+
+function confidentTarget(text) {
+  const candidate = text.split("\n").find((line) => /^[☞▶]\s*/u.test(line)
+    && !/(지원|자금|프로그램|평균|최대)/u.test(line));
+  return candidate?.replace(/^[☞▶]\s*/u, "").trim() ?? "";
+}
+
+function restrictedRegions(text) {
+  const regionLines = text.split("\n").filter((line) => /(?:지역|소재|입주|관내|사업장|본점)/u.test(line));
+  return [...new Set([...REGIONS].filter((region) => region !== "전국"
+    && regionLines.some((line) => line.includes(region))))];
+}
+
+function extractBizinfoCatalogDraft(html, sourceUrl) {
+  if (typeof html !== "string" || html.length > BIZINFO_MAX_HTML_BYTES) {
+    throw bizinfoImportError("BIZINFO_HTML_INVALID", "The Bizinfo HTML is invalid.");
+  }
+  const overview = bizinfoSectionText(html, "사업개요");
+  const applicationPeriod = bizinfoSectionText(html, "신청기간").replace(/\s*~\s*/u, " ~ ");
+  const title = metaContent(html, new Set(["title", "og:title"]));
+  return {
+    sourceUrl,
+    draft: {
+      category: "",
+      title,
+      link: sourceUrl,
+      amountKrw: largestKrwAmount(overview),
+      startMonth: "",
+      endMonth: "",
+      target: confidentTarget(overview),
+      details: overview,
+      industries: [],
+      regions: restrictedRegions(overview),
+      mainPackage: false,
+    },
+    references: { applicationPeriod },
+  };
 }
 
 function currentKoreaYear(date = new Date()) {
@@ -646,11 +872,33 @@ async function readBody(request) {
   }
 }
 
+async function catalogLinkConflict(db, link, currentId = "") {
+  const existing = await db.prepare("SELECT id FROM catalog_programs WHERE link = ? LIMIT 1").bind(link).first();
+  return Boolean(existing?.id && existing.id !== currentId);
+}
+
+async function importCatalogFromBizinfo(request) {
+  if (request.method !== "POST") return apiError(405, "UNSUPPORTED_METHOD");
+  const body = await readBody(request);
+  if (body.error) return apiError(body.status ?? 400, body.error);
+  if (!hasOnlyFields(body.value, new Set(["url"])) || typeof body.value.url !== "string") {
+    return apiError(400, "BIZINFO_URL_REQUIRED");
+  }
+  try {
+    const fetched = await fetchBizinfoHtml(body.value.url);
+    return json(extractBizinfoCatalogDraft(fetched.html, fetched.url));
+  } catch (error) {
+    const status = error?.code === "BIZINFO_URL_INVALID" || error?.code === "BIZINFO_URL_NOT_ALLOWED" ? 400 : 502;
+    return json({ error: error?.code ?? "BIZINFO_IMPORT_FAILED", message: error?.message ?? "Bizinfo import failed." }, status);
+  }
+}
+
 async function createCatalog(request, db) {
   const body = await readBody(request);
   if (body.error) return apiError(body.status ?? 400, body.error);
   const validated = validateCatalogProgramWithOptions(body.value, await catalogOptionSets(db));
   if (validated.error) return apiError(400, validated.error, validated.fields);
+  if (await catalogLinkConflict(db, validated.value.link)) return apiError(409, "CATALOG_LINK_DUPLICATE");
 
   const id = crypto.randomUUID();
   const timestamp = new Date().toISOString();
@@ -670,6 +918,7 @@ async function updateCatalog(request, db, id) {
   if (body.error) return apiError(body.status ?? 400, body.error);
   const validated = validateCatalogProgramWithOptions(body.value, await catalogOptionSets(db));
   if (validated.error) return apiError(400, validated.error, validated.fields);
+  if (await catalogLinkConflict(db, validated.value.link, id)) return apiError(409, "CATALOG_LINK_DUPLICATE");
 
   const timestamp = new Date().toISOString();
   const item = { id, ...validated.value, updatedAt: timestamp };
@@ -1014,13 +1263,25 @@ async function updateFeedback(request, env, roadmapId, programId) {
 
 async function handleApi(request, env, pathname) {
   if (!pathname.startsWith("/api/")) return null;
-  const isCatalog = pathname === CATALOG_PATH || pathname.startsWith(`${CATALOG_PATH}/`);
+  const isCatalogImport = pathname === CATALOG_IMPORT_PATH;
+  const isCatalog = !isCatalogImport && (pathname === CATALOG_PATH || pathname.startsWith(`${CATALOG_PATH}/`));
   const isCatalogOptions = pathname === CATALOG_OPTIONS_PATH;
   const isFeedbackAuth = pathname === FEEDBACK_AUTH_PATH;
   const isRoadmap = pathname === ROADMAP_PATH || pathname.startsWith(`${ROADMAP_PATH}/`);
   const feedback = isRoadmap ? feedbackPath(pathname) : null;
-  if (!isCatalog && !isCatalogOptions && !isFeedbackAuth && !isRoadmap) {
+  if (!isCatalog && !isCatalogImport && !isCatalogOptions && !isFeedbackAuth && !isRoadmap) {
     return apiError(404, "API 경로를 찾을 수 없습니다.");
+  }
+  if (isCatalogImport) {
+    try {
+      if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
+        return apiError(415, "JSON 형식으로 요청해 주세요.");
+      }
+      return await importCatalogFromBizinfo(request);
+    } catch (error) {
+      console.error("api error", error);
+      return apiError(502, "BIZINFO_IMPORT_FAILED");
+    }
   }
   if (!env.DB) return apiError(503, "공유 저장소를 사용할 수 없습니다.");
 
@@ -1087,6 +1348,9 @@ async function handleApi(request, env, pathname) {
 }
 
 export default {
+  validateBizinfoDetailUrl,
+  fetchBizinfoHtml,
+  extractBizinfoCatalogDraft,
   async fetch(request, env) {
     const pathname = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
     const apiResponse = await handleApi(request, env, pathname);

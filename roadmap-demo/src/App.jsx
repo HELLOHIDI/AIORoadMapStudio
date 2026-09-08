@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BUSINESS_SUBCATEGORY_OPTIONS, INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";
 import { groupAdministrativeRegionOptions } from "../catalog-tag-policy.js";
 import { formatAmount, formatRawAmount, parseRawAmount } from "./amount.js";
-import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, EMPTY_CATALOG_PROGRAM, formatCatalogBulletText, parseCatalogText } from "./catalog.js";
+import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, EMPTY_CATALOG_PROGRAM, formatCatalogBulletText } from "./catalog.js";
 import { runPdfPreflight } from "./pdf-preflight.js";
 import { detectPdfRuntime, PDF_RUNTIME } from "./pdf-runtime.js";
 import { selectRoadmapPrograms } from "./roadmap-auto-selection.js";
@@ -626,28 +626,43 @@ function ClientProfileForm({ profile, options, state, onChange, onBack, onSubmit
 }
 
 function CatalogForm({ categories, form, state, options, onChange, onCancel, onCreateOption, onDirty, onSubmit }) {
-  const [importText, setImportText] = useState("");
-  const [importErrors, setImportErrors] = useState([]);
+  const [importUrl, setImportUrl] = useState("");
+  const [importState, setImportState] = useState({ status: "idle", error: "", applicationPeriod: "" });
   const values = form.values;
   const change = (name, value) => {
     onDirty();
     onChange({ ...values, [name]: value });
   };
   const invalid = (name) => Boolean(state.fields?.[name]);
-  const submit = (event) => {
-    if (form.mode === "edit") return onSubmit(event);
-    const parsed = parseCatalogText(importText);
-    if (parsed.warnings.length) {
-      event.preventDefault();
-      setImportErrors(parsed.warnings);
+  const requiredComplete = Boolean(values.category && values.title.trim() && values.link.trim()
+    && values.startMonth !== "" && values.endMonth !== "" && values.target.trim() && values.details.trim()
+    && values.industries.length === 1);
+  const importCatalog = async () => {
+    const url = importUrl.trim();
+    if (!url) {
+      setImportState({ status: "error", error: "기업마당 상세 URL을 입력해 주세요.", applicationPeriod: "" });
       return;
     }
-    setImportErrors([]);
-    onSubmit(event, { ...values, ...parsed.values });
+    setImportState({ status: "loading", error: "", applicationPeriod: "" });
+    try {
+      const response = await fetch("/api/catalog-programs/import", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = await readApiJson(response);
+      if (!response.ok || !data.draft) throw new Error(data.message || data.error || "기업마당 내용을 가져오지 못했습니다.");
+      onDirty();
+      onChange({ ...values, ...data.draft, amountKrw: data.draft.amountKrw ?? "" });
+      setImportUrl(data.sourceUrl || url);
+      setImportState({ status: "success", error: "", applicationPeriod: data.references?.applicationPeriod || "" });
+    } catch (error) {
+      setImportState({ status: "error", error: error.message || "기업마당 내용을 가져오지 못했습니다.", applicationPeriod: "" });
+    }
   };
 
   return (
-    <form className="catalog-form" onSubmit={submit}>
+    <form className="catalog-form" onSubmit={onSubmit}>
       <fieldset className="catalog-form__fields" disabled={state.status === "saving"}>
       <div className="catalog-form__heading">
         <div>
@@ -662,26 +677,29 @@ function CatalogForm({ categories, form, state, options, onChange, onCancel, onC
       {form.mode === "create" ? (
         <section className="catalog-import" aria-labelledby="catalog-import-heading">
           <div>
-            <h4 id="catalog-import-heading">정리된 사업 내용 붙여넣기</h4>
-            <p>아래 형식으로 입력한 뒤 업종과 지역을 선택해 등록해 주세요.</p>
+            <h4 id="catalog-import-heading">기업마당 내용 가져오기</h4>
+            <p>기업마당 지원사업 상세 URL을 넣으면 초안을 불러옵니다. 가져온 내용은 저장 전에 직접 검토·수정해야 합니다.</p>
           </div>
-          <textarea
-            rows="10"
-            value={importText}
-            onChange={(event) => {
-              onDirty();
-              setImportText(event.target.value);
-              if (importErrors.length) setImportErrors([]);
-            }}
-            placeholder={'[사업화] 사업명\n- 링크: https://\n- 지원기간: 6~7월\n- 지원금액: 30백만원\n- 지원대상:\n- 지원내용:'}
-            aria-label="정리된 사업 내용"
-            aria-invalid={importErrors.length > 0 || Boolean(state.error)}
-          />
-          {importErrors.length || state.error ? (
-            <div className="catalog-import__errors" role="alert">
-              {importErrors.length ? <ul>{importErrors.map((error) => <li key={error}>{error}</li>)}</ul> : null}
-              {state.error ? <p>{state.error}</p> : null}
-            </div>
+          <label>
+            <span>기업마당 상세 URL</span>
+            <input
+              type="url"
+              value={importUrl}
+              onChange={(event) => setImportUrl(event.target.value)}
+              placeholder="https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=..."
+              aria-label="기업마당 상세 URL"
+            />
+          </label>
+          <button type="button" className="button-secondary" onClick={importCatalog} disabled={importState.status === "loading"}>
+            {importState.status === "loading" ? "가져오는 중…" : "내용 가져오기"}
+          </button>
+          {importState.applicationPeriod ? (
+            <p className="catalog-import__reference" role="status">
+              기업마당 신청기간(참고): <strong>{importState.applicationPeriod}</strong> · 지원기간 월은 직접 입력해 주세요.
+            </p>
+          ) : null}
+          {importState.error ? (
+            <div className="catalog-import__errors" role="alert"><p>{importState.error}</p></div>
           ) : null}
         </section>
       ) : null}
@@ -714,14 +732,15 @@ function CatalogForm({ categories, form, state, options, onChange, onCancel, onC
       <FieldError errors={state.fields} name="industries" />
       <FieldError errors={state.fields} name="regions" />
 
-      {form.mode === "edit" ? <div className="catalog-form__grid">
+      <div className="catalog-form__grid">
         <label>
           <span>구분</span>
           <select value={values.category} onChange={(event) => {
             const category = event.target.value;
             onDirty();
             onChange({ ...values, category, mainPackage: category === "business" && values.mainPackage === true });
-          }} aria-invalid={invalid("category")}>
+          }} aria-invalid={invalid("category")} required>
+            <option value="" disabled>지원사업 분류 선택</option>
             {categories.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
           </select>
           <FieldError errors={state.fields} name="category" />
@@ -760,11 +779,11 @@ function CatalogForm({ categories, form, state, options, onChange, onCancel, onC
           <textarea maxLength="4000" rows="5" value={values.details} onChange={(event) => change("details", event.target.value)} aria-invalid={invalid("details")} required />
           <FieldError errors={state.fields} name="details" />
         </label>
-      </div> : null}
+      </div>
 
       <div className="catalog-form__actions">
         <button type="button" className="button-secondary" onClick={onCancel} disabled={state.status === "saving"}>취소</button>
-        <button type="submit" className="button-primary" disabled={state.status === "saving"}>
+        <button type="submit" className="button-primary" disabled={state.status === "saving" || !requiredComplete}>
           {state.status === "saving" ? "저장 중" : form.mode === "create" ? "사업 등록" : "변경사항 저장"}
         </button>
       </div>
@@ -1527,7 +1546,7 @@ export function App() {
       mode: "edit",
       id: program.id,
       values: { ...program, amountKrw: program.amountKrw ?? "" },
-    } : { mode: "create", values: { ...EMPTY_CATALOG_PROGRAM } });
+    } : { mode: "create", values: { ...EMPTY_CATALOG_PROGRAM, category: "", startMonth: "", endMonth: "" } });
   };
 
   const saveCatalog = async (event, submittedValues = catalogForm.values) => {

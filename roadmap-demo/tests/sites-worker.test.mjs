@@ -4,6 +4,105 @@ import test from "node:test";
 import { BUSINESS_SUBCATEGORY_OPTIONS, INDUSTRY_OPTIONS, REGION_OPTIONS, inferBusinessSubcategories } from "../catalog-options.js";
 import worker, { validateCatalogProgram } from "../worker/index.js";
 
+const { extractBizinfoCatalogDraft, fetchBizinfoHtml, validateBizinfoDetailUrl } = worker;
+
+const bizinfoUrl = "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000117819";
+
+const bizinfoHtmlFixture = `
+<html><head><meta name="title" content="2026년 초기창업패키지 모집 공고"></head><body>
+<ul class="view_cont">
+  <li><span class="s_title">신청기간</span><div class="txt">2026.01.23 ~ 2026.02.13</div></li>
+  <li><span class="s_title">사업개요</span><div class="txt">
+    <p>초기창업기업의 사업 안정화와 성장을 지원합니다.</p>
+    <p>☞ 창업 후 3년 이내 초기창업기업</p>
+    <p>☞ 사업화 자금(최대 1억원, 평균 0.5억원) 지원</p>
+  </div></li>
+</ul></body></html>`;
+
+test("extracts confident Bizinfo fields without mapping application dates to roadmap months", () => {
+  const result = extractBizinfoCatalogDraft(bizinfoHtmlFixture, bizinfoUrl);
+  assert.equal(result.sourceUrl, bizinfoUrl);
+  assert.equal(result.draft.title, "2026년 초기창업패키지 모집 공고");
+  assert.equal(result.draft.link, bizinfoUrl);
+  assert.equal(result.draft.amountKrw, 100_000_000);
+  assert.equal(result.draft.startMonth, "");
+  assert.equal(result.draft.endMonth, "");
+  assert.equal(result.draft.target, "창업 후 3년 이내 초기창업기업");
+  assert.match(result.draft.details, /사업 안정화/);
+  assert.equal(result.references.applicationPeriod, "2026.01.23 ~ 2026.02.13");
+  assert.deepEqual(result.draft.industries, []);
+});
+
+test("leaves uncertain Bizinfo fields blank instead of guessing", () => {
+  const result = extractBizinfoCatalogDraft("<html><head></head><body></body></html>", bizinfoUrl);
+  assert.equal(result.draft.title, "");
+  assert.equal(result.draft.category, "");
+  assert.equal(result.draft.target, "");
+  assert.equal(result.draft.details, "");
+  assert.equal(result.draft.startMonth, "");
+  assert.equal(result.draft.endMonth, "");
+  assert.equal(result.references.applicationPeriod, "");
+});
+
+test("validates and safely fetches one Bizinfo detail HTML page", async () => {
+  const validated = validateBizinfoDetailUrl(bizinfoUrl);
+  assert.equal(validated.error, undefined);
+  assert.equal(validated.value.toString(), bizinfoUrl);
+
+  let requestOptions;
+  const result = await fetchBizinfoHtml(bizinfoUrl, {
+    fetchImpl: async (_url, options) => {
+      requestOptions = options;
+      return new Response("<html><title>지원사업</title></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+    },
+  });
+  assert.equal(result.url, bizinfoUrl);
+  assert.match(result.html, /지원사업/);
+  assert.equal(requestOptions.redirect, "manual");
+  assert.ok(requestOptions.signal instanceof AbortSignal);
+});
+
+test("rejects unsupported Bizinfo URLs and unsafe responses", async () => {
+  for (const value of [
+    "http://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_1",
+    "https://evil.example/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_1",
+    "https://www.bizinfo.go.kr/other?pblancId=PBLN_1",
+    "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do",
+    `${bizinfoUrl}&other=value`,
+  ]) {
+    assert.equal(validateBizinfoDetailUrl(value).error.code, "BIZINFO_URL_NOT_ALLOWED");
+  }
+
+  await assert.rejects(
+    fetchBizinfoHtml(bizinfoUrl, {
+      fetchImpl: async () => new Response("redirect", { status: 302, headers: { location: "https://evil.example/" } }),
+    }),
+    (error) => error.code === "BIZINFO_REDIRECT_NOT_ALLOWED",
+  );
+  await assert.rejects(
+    fetchBizinfoHtml(bizinfoUrl, {
+      fetchImpl: async () => new Response("{}", { headers: { "content-type": "application/json" } }),
+    }),
+    (error) => error.code === "BIZINFO_CONTENT_TYPE_INVALID",
+  );
+  await assert.rejects(
+    fetchBizinfoHtml(bizinfoUrl, {
+      maxBytes: 4,
+      fetchImpl: async () => new Response("12345", { headers: { "content-type": "text/html" } }),
+    }),
+    (error) => error.code === "BIZINFO_RESPONSE_TOO_LARGE",
+  );
+});
+
+test("times out a stalled Bizinfo fetch", async () => {
+  await assert.rejects(
+    fetchBizinfoHtml(bizinfoUrl, { timeoutMs: 5, fetchImpl: async () => new Promise(() => {}) }),
+    (error) => error.code === "BIZINFO_FETCH_TIMEOUT",
+  );
+});
+
 test("serves existing static assets without a fallback", async () => {
   const calls = [];
   const response = await worker.fetch(new Request("https://example.test/assets/app.js"), {
@@ -135,6 +234,10 @@ function createDatabase() {
               return { results: items };
             },
             async first() {
+              if (statement.startsWith("SELECT id FROM catalog_programs WHERE link = ?")) {
+                const row = rows.find((item) => item.link === params[0]);
+                return row ? { id: row.id } : null;
+              }
               return {
                 total: filterRows(statement, params).length,
               };
@@ -306,6 +409,15 @@ test("validates and persists catalog CRUD through D1", async () => {
   assert.deepEqual(created.item.industries, catalogInput.industries);
   assert.deepEqual(created.item.regions, catalogInput.regions);
   assert.deepEqual(created.item.businessSubcategories, []);
+  assert.equal(DB.rows.length, 1);
+
+  const duplicate = await request("/api/catalog-programs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(catalogInput),
+  });
+  assert.equal(duplicate.status, 409);
+  assert.equal((await duplicate.json()).error, "CATALOG_LINK_DUPLICATE");
   assert.equal(DB.rows.length, 1);
 
   const multipleIndustries = await request("/api/catalog-programs", {

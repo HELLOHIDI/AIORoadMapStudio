@@ -28,7 +28,7 @@
 - Non-goals:
   - Personal accounts, named attribution, per-person permissions, or a general approval/moderation platform.
   - Replies, mentions, attachments, notifications, comment editing/deletion, priority, due dates, or real-time collaboration.
-  - Automatic notice crawling or metadata extraction.
+  - Broad or batch notice crawling; the approved MVP supports deterministic extraction from one Bizinfo detail URL for user review before saving.
   - Treating annual confirmation as an approval gate, warning, filter, sort key, roadmap field, or export content.
   - Site-wide navigation redesign or a new multi-page information architecture.
   - Redesigning the A4 landscape document.
