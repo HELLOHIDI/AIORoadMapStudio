@@ -78,6 +78,13 @@
       "when": 1788836736439,
       "tag": "0010_catalog_link_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788838000000,
+      "tag": "0011_catalog_link_lookup",
+      "breakpoints": true
     }
   ]
 }
