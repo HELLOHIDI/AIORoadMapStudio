@@ -144,11 +144,16 @@ test("runs release export verification for both roadmap tiers", () => {
   assert.ok(pptxVerifier.includes("certificationAbsent: true"));
 });
 
-test("keeps creation text-first while leaving catalog editing field-based", () => {
-  assert.ok(app.includes("parseCatalogText(importText)"));
+test("imports a Bizinfo URL into an editable catalog form", () => {
+  assert.ok(app.includes('fetch("/api/catalog-programs/import"'));
+  assert.ok(app.includes("data.draft"));
+  assert.ok(app.includes("data.references?.applicationPeriod"));
+  assert.ok(app.includes("지원기간 월은 직접 입력해 주세요."));
+  assert.doesNotMatch(app, /parseCatalogText\(importText\)/);
   assert.ok(app.includes("catalog-import__errors"));
-  assert.ok(!app.includes("내용 불러오기"));
-  assert.match(app, /form\.mode === "edit" \? <div className="catalog-form__grid">/);
+  assert.ok(app.includes("기업마당 내용 가져오기"));
+  assert.match(app, /className="catalog-form__grid"/);
+  assert.ok(app.includes('disabled={state.status === "saving" || !requiredComplete}'));
   assert.match(app, /if \(!editing\) \{\s*setCatalogSearch\(""\);\s*setCatalogQuery\(""\);\s*setCatalogOffset\(0\);\s*\}/);
 });
 

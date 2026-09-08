@@ -1346,6 +1346,12 @@ button {
   font-size: 13px;
 }
 
+.catalog-import__reference {
+  margin: 0;
+  color: #606775;
+  font-size: 13px;
+}
+
 .catalog-import__errors {
   padding: 10px 12px;
   border-radius: 6px;
