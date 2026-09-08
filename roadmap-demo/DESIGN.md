@@ -105,8 +105,8 @@
   - `CatalogList` and `CatalogRow` using lightweight row separation.
   - Each catalog row has one reversible icon-only annual verification toggle: an outlined empty circle when unconfirmed and a filled green circle with a check when confirmed. Keep status text out of the row; expose the current year and action through the accessible label and hover title.
   - `CatalogForm` for explicit create/edit mode, not the catalog default.
-  - New-business `CatalogForm` is text-first: one agreed-format textarea, inline source-text errors, then searchable multi-select industry and region tags. A missing industry or region can be added as an immediately persisted public option from its picker. It parses only on registration and never shows a parsed-result review or individual creation fields.
-  - Existing-business editing retains the current individual editable fields and tag selectors.
+  - New-business `CatalogForm` starts with one Bizinfo detail URL, shows a deterministic editable draft and non-persisted application-period reference, then uses the existing individual fields and tag selectors for review before registration. A missing industry or region can be added as an immediately persisted public option from its picker.
+  - Existing-business editing retains the same individual editable fields and tag selectors.
   - Business create/edit exposes only the manual `메인패키지` toggle. `경진대회`, `수출`, `마케팅`, and `컨설팅` remain derived, read-only tags shown on catalog rows.
   - Roadmap program rows expose copied target/details/link through a native read-only disclosure. Directly added programs do not gain detail-entry fields.
   - The roadmap `구분` control offers `마케팅` as a display-only choice backed by the existing `business` lane. It changes only the bar prefix from `[사업화]` to `[마케팅]`.

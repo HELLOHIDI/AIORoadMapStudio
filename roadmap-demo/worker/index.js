@@ -221,6 +221,12 @@ function metaContent(html, names) {
   return "";
 }
 
+function bizinfoTitle(html) {
+  return metaContent(html, new Set(["title", "og:title"]))
+    || htmlToText(html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "")
+    || htmlToText(html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? "");
+}
+
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -258,17 +264,24 @@ function restrictedRegions(text) {
     && regionLines.some((line) => line.includes(region))))];
 }
 
+function bizinfoCategory(text) {
+  return /(?:바우처|크레딧|포인트|쿠폰|이용권|서비스\s*이용)/u.test(text) ? "voucher" : "business";
+}
+
 function extractBizinfoCatalogDraft(html, sourceUrl) {
   if (typeof html !== "string" || html.length > BIZINFO_MAX_HTML_BYTES) {
     throw bizinfoImportError("BIZINFO_HTML_INVALID", "The Bizinfo HTML is invalid.");
   }
   const overview = bizinfoSectionText(html, "사업개요");
   const applicationPeriod = bizinfoSectionText(html, "신청기간").replace(/\s*~\s*/u, " ~ ");
-  const title = metaContent(html, new Set(["title", "og:title"]));
+  const title = bizinfoTitle(html);
+  if (!title || !overview) {
+    throw bizinfoImportError("BIZINFO_HTML_STRUCTURE_CHANGED", "Bizinfo page structure changed; review the notice manually.");
+  }
   return {
     sourceUrl,
     draft: {
-      category: "",
+      category: bizinfoCategory(`${title}\n${overview}`),
       title,
       link: sourceUrl,
       amountKrw: largestKrwAmount(overview),
@@ -873,8 +886,8 @@ async function readBody(request) {
 }
 
 async function catalogLinkConflict(db, link, currentId = "") {
-  const existing = await db.prepare("SELECT id FROM catalog_programs WHERE link = ? LIMIT 1").bind(link).first();
-  return Boolean(existing?.id && existing.id !== currentId);
+  const existing = await db.prepare("SELECT id, title FROM catalog_programs WHERE link = ? LIMIT 1").bind(link).first();
+  return existing?.id && existing.id !== currentId ? existing : null;
 }
 
 async function importCatalogFromBizinfo(request) {
@@ -898,7 +911,12 @@ async function createCatalog(request, db) {
   if (body.error) return apiError(body.status ?? 400, body.error);
   const validated = validateCatalogProgramWithOptions(body.value, await catalogOptionSets(db));
   if (validated.error) return apiError(400, validated.error, validated.fields);
-  if (await catalogLinkConflict(db, validated.value.link)) return apiError(409, "CATALOG_LINK_DUPLICATE");
+  const conflict = await catalogLinkConflict(db, validated.value.link);
+  if (conflict) return json({
+    error: "CATALOG_LINK_DUPLICATE",
+    message: `This source link is already registered as ${conflict.title}.`,
+    existing: conflict,
+  }, 409);
 
   const id = crypto.randomUUID();
   const timestamp = new Date().toISOString();
@@ -918,7 +936,12 @@ async function updateCatalog(request, db, id) {
   if (body.error) return apiError(body.status ?? 400, body.error);
   const validated = validateCatalogProgramWithOptions(body.value, await catalogOptionSets(db));
   if (validated.error) return apiError(400, validated.error, validated.fields);
-  if (await catalogLinkConflict(db, validated.value.link, id)) return apiError(409, "CATALOG_LINK_DUPLICATE");
+  const conflict = await catalogLinkConflict(db, validated.value.link, id);
+  if (conflict) return json({
+    error: "CATALOG_LINK_DUPLICATE",
+    message: `This source link is already registered as ${conflict.title}.`,
+    existing: conflict,
+  }, 409);
 
   const timestamp = new Date().toISOString();
   const item = { id, ...validated.value, updatedAt: timestamp };
@@ -1350,6 +1373,8 @@ async function handleApi(request, env, pathname) {
 export default {
   validateBizinfoDetailUrl,
   fetchBizinfoHtml,
+  bizinfoTitle,
+  bizinfoCategory,
   extractBizinfoCatalogDraft,
   async fetch(request, env) {
     const pathname = new URL(request.url).pathname.replace(/\/+$/, "") || "/";

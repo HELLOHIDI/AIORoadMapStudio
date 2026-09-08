@@ -239,7 +239,7 @@ test("starts in the shared saved-roadmap library and requires explicit saves", (
   assert.ok(app.includes('method: "DELETE"'));
   assert.ok(app.includes('window.addEventListener("beforeunload"'));
   assert.ok(app.includes("isDirty || catalogFormDirty"));
-  assert.ok(app.includes('className="catalog-form__fields" disabled={state.status === "saving"}'));
+  assert.ok(app.includes('className="catalog-form__fields" disabled={state.status === "saving" || importState.status === "loading"}'));
   assert.ok(app.includes('disabled={roadmapMutation.status === "saving" || catalogMutation.status === "saving"}>로드맵 목록'));
   assert.ok(app.includes("setRoadmapRefresh((current) => current + 1)"));
   assert.ok(app.includes("모든 방문자가 보고 수정하거나 삭제할 수 있습니다"));

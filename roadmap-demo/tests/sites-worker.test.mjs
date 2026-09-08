@@ -9,7 +9,7 @@ const { extractBizinfoCatalogDraft, fetchBizinfoHtml, validateBizinfoDetailUrl }
 const bizinfoUrl = "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000117819";
 
 const bizinfoHtmlFixture = `
-<html><head><meta name="title" content="2026년 초기창업패키지 모집 공고"></head><body>
+<html><head><title>2026년 초기창업패키지 모집 공고</title></head><body>
 <ul class="view_cont">
   <li><span class="s_title">신청기간</span><div class="txt">2026.01.23 ~ 2026.02.13</div></li>
   <li><span class="s_title">사업개요</span><div class="txt">
@@ -23,6 +23,7 @@ test("extracts confident Bizinfo fields without mapping application dates to roa
   const result = extractBizinfoCatalogDraft(bizinfoHtmlFixture, bizinfoUrl);
   assert.equal(result.sourceUrl, bizinfoUrl);
   assert.equal(result.draft.title, "2026년 초기창업패키지 모집 공고");
+  assert.equal(result.draft.category, "business");
   assert.equal(result.draft.link, bizinfoUrl);
   assert.equal(result.draft.amountKrw, 100_000_000);
   assert.equal(result.draft.startMonth, "");
@@ -33,15 +34,16 @@ test("extracts confident Bizinfo fields without mapping application dates to roa
   assert.deepEqual(result.draft.industries, []);
 });
 
-test("leaves uncertain Bizinfo fields blank instead of guessing", () => {
-  const result = extractBizinfoCatalogDraft("<html><head></head><body></body></html>", bizinfoUrl);
-  assert.equal(result.draft.title, "");
-  assert.equal(result.draft.category, "");
-  assert.equal(result.draft.target, "");
-  assert.equal(result.draft.details, "");
-  assert.equal(result.draft.startMonth, "");
-  assert.equal(result.draft.endMonth, "");
-  assert.equal(result.references.applicationPeriod, "");
+test("rejects a Bizinfo page whose expected structure is missing", () => {
+  assert.throws(
+    () => extractBizinfoCatalogDraft("<html><head></head><body></body></html>", bizinfoUrl),
+    (error) => error.code === "BIZINFO_HTML_STRUCTURE_CHANGED",
+  );
+});
+
+test("classifies explicit voucher benefits and falls back to business", () => {
+  const voucher = extractBizinfoCatalogDraft(bizinfoHtmlFixture.replace("사업화 자금", "바우처 포인트"), bizinfoUrl);
+  assert.equal(voucher.draft.category, "voucher");
 });
 
 test("validates and safely fetches one Bizinfo detail HTML page", async () => {
@@ -234,9 +236,9 @@ function createDatabase() {
               return { results: items };
             },
             async first() {
-              if (statement.startsWith("SELECT id FROM catalog_programs WHERE link = ?")) {
+              if (statement.startsWith("SELECT id, title FROM catalog_programs WHERE link = ?")) {
                 const row = rows.find((item) => item.link === params[0]);
-                return row ? { id: row.id } : null;
+                return row ? { id: row.id, title: row.title } : null;
               }
               return {
                 total: filterRows(statement, params).length,
@@ -417,7 +419,11 @@ test("validates and persists catalog CRUD through D1", async () => {
     body: JSON.stringify(catalogInput),
   });
   assert.equal(duplicate.status, 409);
-  assert.equal((await duplicate.json()).error, "CATALOG_LINK_DUPLICATE");
+  assert.deepEqual(await duplicate.json(), {
+    error: "CATALOG_LINK_DUPLICATE",
+    message: `This source link is already registered as ${catalogInput.title}.`,
+    existing: { id: created.item.id, title: catalogInput.title },
+  });
   assert.equal(DB.rows.length, 1);
 
   const multipleIndustries = await request("/api/catalog-programs", {
@@ -1093,6 +1099,7 @@ test("emits the files required by Sites packaging", async () => {
   await access(new URL("../dist/.openai/drizzle/0006_catalog_business_subcategories.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0008_catalog_funding_exclusions.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0009_catalog_verified_year.sql", import.meta.url));
+  await access(new URL("../dist/.openai/drizzle/0010_catalog_link_unique.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/meta/_journal.json", import.meta.url));
   const migration = await readFile(new URL("../drizzle/0003_saved_roadmaps_tier.sql", import.meta.url), "utf8");
   assert.match(migration, /ADD COLUMN tier TEXT NOT NULL DEFAULT 'premium'/);
@@ -1102,6 +1109,7 @@ test("emits the files required by Sites packaging", async () => {
   assert.equal(journal.entries.filter((entry) => entry.tag === "0006_catalog_business_subcategories").length, 1);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0008_catalog_funding_exclusions").length, 1);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0009_catalog_verified_year").length, 1);
+  assert.equal(journal.entries.filter((entry) => entry.tag === "0010_catalog_link_unique").length, 1);
   const server = await readFile(new URL("../dist/server/index.js", import.meta.url), "utf8");
   assert.deepEqual(server.match(/^export /gm), ["export "]);
 });
