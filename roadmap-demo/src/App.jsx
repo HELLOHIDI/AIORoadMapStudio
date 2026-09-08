@@ -663,7 +663,7 @@ function CatalogForm({ categories, form, state, options, onChange, onCancel, onC
 
   return (
     <form className="catalog-form" onSubmit={onSubmit}>
-      <fieldset className="catalog-form__fields" disabled={state.status === "saving"}>
+      <fieldset className="catalog-form__fields" disabled={state.status === "saving" || importState.status === "loading"}>
       <div className="catalog-form__heading">
         <div>
           <h3>{form.mode === "create" ? "새 사업 등록" : "등록 사업 편집"}</h3>
@@ -1561,7 +1561,10 @@ export function App() {
       });
       const data = await readApiJson(response);
       if (!response.ok) {
-        setCatalogMutation({ status: "error", error: data.error || "사업을 저장하지 못했습니다.", fields: data.fields || {} });
+        const error = data.error === "CATALOG_LINK_DUPLICATE"
+          ? `이미 등록된 지원사업입니다: ${data.existing?.title || "기존 항목"}`
+          : data.message || data.error || "사업을 저장하지 못했습니다.";
+        setCatalogMutation({ status: "error", error, fields: data.fields || {} });
         return;
       }
       setCatalogForm(null);
