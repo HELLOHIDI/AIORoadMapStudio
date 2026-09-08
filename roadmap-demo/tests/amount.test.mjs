@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatAmount } from "../src/amount.js";
+import { formatAmount, formatRawAmount, parseRawAmount } from "../src/amount.js";
 
 test("formats the agreed KRW display units", () => {
   assert.equal(formatAmount(null), "");
@@ -20,4 +20,12 @@ test("rejects non-positive or unsafe amounts", () => {
   for (const value of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
     assert.throws(() => formatAmount(value), RangeError);
   }
+});
+
+test("formats raw won input without changing the stored integer", () => {
+  assert.equal(formatRawAmount(30_000_000), "30,000,000");
+  assert.equal(formatRawAmount("30000000"), "30,000,000");
+  assert.equal(formatRawAmount(""), "");
+  assert.equal(parseRawAmount("30,000,000"), 30_000_000);
+  assert.equal(parseRawAmount(""), null);
 });

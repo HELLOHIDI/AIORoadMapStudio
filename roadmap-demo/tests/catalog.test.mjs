@@ -62,10 +62,26 @@ test("normalizes a catalog form into the API payload", () => {
   });
 });
 
+test("normalizes comma-formatted raw amounts to integers", () => {
+  assert.equal(catalogPayload({
+    category: "business",
+    title: "사업",
+    link: "https://example.test/notice",
+    amountKrw: "30,000,000",
+    startMonth: "1",
+    endMonth: "1",
+    target: "기업",
+    details: "지원",
+    industries: [],
+    regions: [],
+  }).amountKrw, 30_000_000);
+});
+
 test("classifies business subcategories independently in display order", () => {
   assert.deepEqual(inferBusinessSubcategories({
     category: "business",
     title: "미국 진출 데모데이 마케팅 사업",
+    target: "여성기업 대상",
     details: "수출 컨설팅을 함께 지원",
     mainPackage: true,
   }), BUSINESS_SUBCATEGORY_OPTIONS);
@@ -84,6 +100,17 @@ test("classifies business subcategories independently in display order", () => {
     inferBusinessSubcategories({ category: "business", title: "일반 사업", details: "데모데이 참가 지원" }),
     [],
   );
+});
+
+test("derives 여성기업 from title, target, and details", () => {
+  for (const program of [
+    { title: "여성기업 전용 사업", target: "일반 기업", details: "" },
+    { title: "일반 사업", target: "여성기업 대상", details: "" },
+    { title: "일반 사업", target: "일반 기업", details: "여성기업 우대 및 포함" },
+  ]) {
+    assert.deepEqual(inferBusinessSubcategories({ category: "business", ...program }), ["여성기업"]);
+  }
+  assert.deepEqual(inferBusinessSubcategories({ category: "voucher", title: "여성기업", target: "", details: "" }), []);
 });
 
 test("parses the agreed support-program text format without saving it", () => {

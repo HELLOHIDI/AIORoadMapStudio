@@ -239,7 +239,7 @@ test("starts in the shared saved-roadmap library and requires explicit saves", (
   assert.ok(app.includes("setRoadmapRefresh((current) => current + 1)"));
   assert.ok(app.includes("모든 방문자가 보고 수정하거나 삭제할 수 있습니다"));
   assert.ok(app.includes("로드맵 저장"));
-  assert.ok(!app.includes("localStorage"));
+  assert.ok(app.includes("RECOMMENDATION_DETAILS_STORAGE_KEY"));
   assert.ok(!app.includes("sessionStorage"));
 });
 

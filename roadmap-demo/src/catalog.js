@@ -111,7 +111,7 @@ export function catalogPayload(values) {
     category: values.category,
     title: values.title.trim(),
     link: values.link.trim(),
-    amountKrw: values.amountKrw === "" ? null : Number(values.amountKrw),
+    amountKrw: values.amountKrw === "" ? null : Number(String(values.amountKrw).replaceAll(",", "")),
     startMonth: Number(values.startMonth),
     endMonth: Number(values.endMonth),
     target: formatCatalogBulletText(values.target),

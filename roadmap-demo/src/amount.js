@@ -18,3 +18,13 @@ export function formatAmount(won) {
 
   return `${won.toLocaleString("ko-KR")}원`;
 }
+
+export function formatRawAmount(value) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  return digits ? Number(digits).toLocaleString("ko-KR") : "";
+}
+
+export function parseRawAmount(value) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  return digits ? Number(digits) : null;
+}

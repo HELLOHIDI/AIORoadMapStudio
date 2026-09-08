@@ -373,6 +373,7 @@ test("recomputes automatic business tags while preserving manual main package", 
     body: JSON.stringify({
       ...catalogInput,
       title: "일본 데모데이 마케팅 사업",
+      target: "여성기업 대상",
       details: "수출 컨설팅 지원",
       mainPackage: true,
     }),
@@ -506,6 +507,35 @@ test("filters catalog tags with OR within dimensions and AND before pagination",
   assert.equal(tooManyFilters.status, 400);
 });
 
+test("matches nationwide and selected regions as a catalog union", async () => {
+  const DB = createDatabase();
+  const row = (id, regions, updatedAt) => ({
+    id,
+    category: "business",
+    title: id,
+    link: "https://example.test",
+    amountKrw: 1_000_000,
+    startMonth: 1,
+    endMonth: 2,
+    target: id,
+    details: id,
+    industriesJson: "[]",
+    regionsJson: JSON.stringify(regions),
+    createdAt: updatedAt,
+    updatedAt,
+  });
+  DB.rows.push(
+    row("nationwide", ["전국"], "2026-01-03T00:00:00.000Z"),
+    row("seoul", ["서울"], "2026-01-02T00:00:00.000Z"),
+    row("busan", ["부산"], "2026-01-01T00:00:00.000Z"),
+  );
+  const response = await worker.fetch(new Request("https://example.test/api/catalog-programs?category=business&region=전국&region=서울&limit=50&offset=0"), { DB });
+  const result = await response.json();
+
+  assert.equal(result.total, 2);
+  assert.deepEqual(result.items.map((item) => item.id), ["nationwide", "seoul"]);
+});
+
 test("searches catalog program titles only", async () => {
   const DB = createDatabase();
   const row = (id, title, target, details) => ({
@@ -635,6 +665,7 @@ test("derives and filters multiple business subcategories before pagination", as
     row("domestic", "대한민국 창업 지원", "국내 판로 지원", ["서울"], false, "2026-01-03T00:00:00.000Z"),
     row("export", "일본 데모데이", "마케팅 및 컨설팅 지원", ["부산"], false, "2026-01-02T00:00:00.000Z"),
     row("main", "일반 사업화", "시제품 지원", ["서울"], true, "2026-01-01T00:00:00.000Z"),
+    row("women", "여성기업 지원", "일반 지원", ["서울"], false, "2025-12-31T00:00:00.000Z"),
   );
   const request = (path) => worker.fetch(new Request(`https://example.test${path}`), { DB });
 
@@ -650,6 +681,11 @@ test("derives and filters multiple business subcategories before pagination", as
 
   assert.equal((await request("/api/catalog-programs?category=voucher&businessSubcategory=수출")).status, 400);
   assert.equal((await request("/api/catalog-programs?category=business&businessSubcategory=기타")).status, 400);
+
+  const women = await (await request("/api/catalog-programs?category=business&businessSubcategory=여성기업&limit=50&offset=0")).json();
+  assert.equal(women.total, 1);
+  assert.deepEqual(women.items.map((item) => item.id), ["women"]);
+  assert.deepEqual(women.items[0].businessSubcategories, ["여성기업"]);
 });
 
 test("persists public roadmap drafts without applying PDF validity rules", async () => {

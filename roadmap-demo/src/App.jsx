@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BUSINESS_SUBCATEGORY_OPTIONS, INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";
 import { groupAdministrativeRegionOptions } from "../catalog-tag-policy.js";
-import { formatAmount } from "./amount.js";
+import { formatAmount, formatRawAmount, parseRawAmount } from "./amount.js";
 import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, EMPTY_CATALOG_PROGRAM, formatCatalogBulletText, parseCatalogText } from "./catalog.js";
 import { runPdfPreflight } from "./pdf-preflight.js";
 import { detectPdfRuntime, PDF_RUNTIME } from "./pdf-runtime.js";
@@ -23,6 +23,26 @@ const feedbackStatusLabel = Object.freeze({
   completed: "수정 완료",
   resolved: "해결",
 });
+const RECOMMENDATION_DETAILS_STORAGE_KEY = "aio-roadmap-studio:auto-match-recommendations-open";
+
+function readRecommendationDetailsOpen() {
+  if (typeof window === "undefined") return true;
+  try {
+    const stored = window.localStorage.getItem(RECOMMENDATION_DETAILS_STORAGE_KEY);
+    return stored === null || !["true", "false"].includes(stored) ? true : stored === "true";
+  } catch {
+    return true;
+  }
+}
+
+function writeRecommendationDetailsOpen(value) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(RECOMMENDATION_DETAILS_STORAGE_KEY, String(value));
+  } catch {
+    // Storage can be disabled; the in-memory preference still applies.
+  }
+}
 
 async function readApiJson(response) {
   if (!response.headers.get("content-type")?.includes("application/json")) {
@@ -56,6 +76,27 @@ function safeExternalUrl(value) {
   } catch {
     return "";
   }
+}
+
+function RawAmountInput({ value, onChange, ...props }) {
+  const handleChange = (event) => {
+    const input = event.currentTarget;
+    const digitsBeforeCursor = input.value.slice(0, input.selectionStart ?? input.value.length).replace(/\D/g, "").length;
+    const next = parseRawAmount(input.value);
+    onChange(next);
+    (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
+      let cursor = 0;
+      let digits = 0;
+      const formatted = formatRawAmount(next);
+      while (cursor < formatted.length && digits < digitsBeforeCursor) {
+        if (/\d/.test(formatted[cursor])) digits += 1;
+        cursor += 1;
+      }
+      input.setSelectionRange(cursor, cursor);
+    });
+  };
+
+  return <input {...props} type="text" inputMode="numeric" value={formatRawAmount(value)} onChange={handleChange} />;
 }
 
 function createProgramId() {
@@ -313,7 +354,7 @@ function ProgramEditor({ program, categories, placementError, onChange, onDelete
         <input aria-label="사업명" value={program.title} onChange={(event) => onChange({ title: event.target.value })} placeholder="사업명" />
         <input aria-label="시작월" type="number" min="1" max="12" value={program.startMonth} onChange={(event) => onChange({ startMonth: number(event.target.value) })} />
         <input aria-label="종료월" type="number" min="1" max="12" value={program.endMonth} onChange={(event) => onChange({ endMonth: number(event.target.value) })} />
-        <input aria-label="금액" type="number" min="1" step="1" value={program.amountKrw ?? ""} onChange={(event) => onChange({ amountKrw: event.target.value === "" ? null : Number(event.target.value) })} placeholder="금액(원)" />
+        <RawAmountInput aria-label="금액" value={program.amountKrw} onChange={(amountKrw) => onChange({ amountKrw })} placeholder="금액(원)" />
         <button type="button" className="delete-program" onClick={onDelete} aria-label={`${program.title || "새 사업"} 삭제`}>×</button>
       </div>
       {placementError ? (
@@ -428,7 +469,7 @@ function TagPicker({ label, options, value = [], onChange, onCreate, maxSelectio
   );
 }
 
-function RegionFilter({ options, value = [], onChange }) {
+function RegionFilter({ options, value = [], onChange, allowNationwideWithSpecific = false }) {
   const [query, setQuery] = useState("");
   const selected = Array.isArray(value) ? value : [];
   const grouped = useMemo(() => groupAdministrativeRegionOptions(options), [options]);
@@ -448,12 +489,12 @@ function RegionFilter({ options, value = [], onChange }) {
       onChange(selected.filter((item) => item !== option));
       return;
     }
-    if (option === "전국") {
+    if (option === "전국" && !allowNationwideWithSpecific) {
       onChange([option]);
       return;
     }
     const group = optionGroups.get(option);
-    let next = selected.filter((item) => item !== "전국");
+    let next = allowNationwideWithSpecific ? selected : selected.filter((item) => item !== "전국");
     if (group) {
       next = option === group.key
         ? next.filter((item) => !group.options.includes(item))
@@ -697,7 +738,7 @@ function CatalogForm({ categories, form, state, options, onChange, onCancel, onC
         </label>
         <label>
           <span>최대 지원금(원)</span>
-          <input type="number" min="1" step="1" value={values.amountKrw} onChange={(event) => change("amountKrw", event.target.value)} aria-invalid={invalid("amountKrw")} placeholder="미정이면 비워두기" />
+          <RawAmountInput value={values.amountKrw} onChange={(amountKrw) => change("amountKrw", amountKrw ?? "")} aria-invalid={invalid("amountKrw")} placeholder="미정이면 비워두기" />
           <FieldError errors={state.fields} name="amountKrw" />
         </label>
         <label>
@@ -764,6 +805,7 @@ export function App() {
   });
   const [catalogOffset, setCatalogOffset] = useState(0);
   const [catalogRefresh, setCatalogRefresh] = useState(0);
+  const [recommendationDetailsOpen, setRecommendationDetailsOpen] = useState(readRecommendationDetailsOpen);
   const [catalogForm, setCatalogForm] = useState(null);
   const [catalogFormDirty, setCatalogFormDirty] = useState(false);
   const [catalogMutation, setCatalogMutation] = useState({ status: "idle", error: "", fields: {} });
@@ -786,6 +828,8 @@ export function App() {
   const libraryHeading = useRef(null);
   const roadmapHeading = useRef(null);
   const catalogHeading = useRef(null);
+  const catalogListRef = useRef(null);
+  const catalogPageScrollPending = useRef(false);
   const tierHeading = useRef(null);
   const profileHeading = useRef(null);
   const moveFocus = useRef(false);
@@ -916,6 +960,12 @@ export function App() {
 
     return () => controller.abort();
   }, [screen, mode, catalogQuery, catalogCategory, catalogStartMonth, catalogEndMonth, catalogIndustries, catalogRegions, catalogBusinessSubcategories, catalogOffset, catalogRefresh, catalogCategoryKeys, firstCatalogCategory]);
+
+  useEffect(() => {
+    if (!catalogPageScrollPending.current || catalog.status !== "ready") return;
+    catalogPageScrollPending.current = false;
+    catalogListRef.current?.scrollIntoView({ block: "start" });
+  }, [catalog.status, catalog.offset]);
 
   useEffect(() => {
     if (screen !== "editor" || mode !== "roadmap") return undefined;
@@ -1711,6 +1761,10 @@ export function App() {
   )));
   const canGoBack = catalogOffset > 0;
   const canGoForward = catalogOffset + catalog.items.length < catalog.total;
+  const goToCatalogPage = (nextOffset) => {
+    catalogPageScrollPending.current = true;
+    setCatalogOffset(nextOffset);
+  };
   const catalogPeriodChanged = catalogStartMonth !== "1" || catalogEndMonth !== "12";
   const catalogPeriodLabel = `${catalogStartMonth}–${catalogEndMonth}월`;
   const catalogCategoryLabel = catalogCategories.find(({ key }) => key === catalogCategory)?.label ?? "전체";
@@ -1890,7 +1944,11 @@ export function App() {
               </dl>
             ) : null}
             {draftRecommendations.length ? (
-              <details className="auto-match-recommendations" open>
+              <details className="auto-match-recommendations" open={recommendationDetailsOpen} onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setRecommendationDetailsOpen(open);
+                writeRecommendationDetailsOpen(open);
+              }}>
                 <summary>점수순 추천 후보 {draftRecommendations.length}개</summary>
                 <p>사업화 최소 20개, 바우처 최소 10개, IP 최대 5개로 구성하며 기업인증은 제외합니다. 카테고리별 로드맵 행이 가득 찬 경우 기존 사업을 제거한 뒤 교체할 수 있습니다.</p>
                 <div className="auto-match-recommendations__list">
@@ -2026,7 +2084,7 @@ export function App() {
                     }} />
                   </FilterPopover>
                   <FilterPopover id="catalog-region-filter" label="지역" summary={filterSummary(catalogRegions)} className="catalog-filter-popover--wide">
-                    <RegionFilter options={catalogOptions.regions} value={catalogRegions} onChange={(next) => {
+                    <RegionFilter options={catalogOptions.regions} value={catalogRegions} allowNationwideWithSpecific onChange={(next) => {
                       setCatalogRegions(next);
                       setCatalogOffset(0);
                     }} />
@@ -2104,7 +2162,7 @@ export function App() {
                 </div>
               ) : null}
 
-              <div className="catalog-list" aria-busy={catalog.status === "loading" || catalog.status === "refreshing"}>
+              <div ref={catalogListRef} className="catalog-list" aria-busy={catalog.status === "loading" || catalog.status === "refreshing"}>
                 {catalog.status === "loading" ? <p className="catalog-state" role="status">저장된 사업을 불러오는 중입니다.</p> : null}
                 {catalog.status !== "loading" && !catalog.items.length && !catalog.error ? (
                   <div className="catalog-state">
@@ -2160,8 +2218,8 @@ export function App() {
                 <div className="catalog-pagination">
                   <span>전체 {catalog.total}개 · {catalog.offset + 1}~{catalog.offset + catalog.items.length}</span>
                   <div>
-                    <button type="button" className="button-secondary" disabled={!canGoBack} onClick={() => setCatalogOffset(Math.max(0, catalogOffset - catalog.limit))}>이전</button>
-                    <button type="button" className="button-secondary" disabled={!canGoForward} onClick={() => setCatalogOffset(catalogOffset + catalog.limit)}>다음</button>
+                    <button type="button" className="button-secondary" disabled={!canGoBack} onClick={() => goToCatalogPage(Math.max(0, catalogOffset - catalog.limit))}>이전</button>
+                    <button type="button" className="button-secondary" disabled={!canGoForward} onClick={() => goToCatalogPage(catalogOffset + catalog.limit)}>다음</button>
                   </div>
                 </div>
               ) : null}
