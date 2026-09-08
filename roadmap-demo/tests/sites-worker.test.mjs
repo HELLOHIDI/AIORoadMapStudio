@@ -1105,6 +1105,9 @@ test("emits the files required by Sites packaging", async () => {
   assert.match(migration, /ADD COLUMN tier TEXT NOT NULL DEFAULT 'premium'/);
   assert.match(migration, /CHECK \(tier IN \('premium', 'standard'\)\)/);
   const journal = JSON.parse(await readFile(new URL("../drizzle/meta/_journal.json", import.meta.url), "utf8"));
+  const linkMigration = await readFile(new URL("../drizzle/0010_catalog_link_unique.sql", import.meta.url), "utf8");
+  assert.match(linkMigration, /CREATE TRIGGER IF NOT EXISTS catalog_programs_link_unique_insert/);
+  assert.match(linkMigration, /CREATE TRIGGER IF NOT EXISTS catalog_programs_link_unique_update/);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0003_saved_roadmaps_tier").length, 1);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0006_catalog_business_subcategories").length, 1);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0008_catalog_funding_exclusions").length, 1);
