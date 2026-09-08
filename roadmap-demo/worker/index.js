@@ -599,7 +599,7 @@ async function listCatalog(request, db) {
       const terms = tag === "경진대회"
         ? BUSINESS_COMPETITION_TERMS
         : tag === "수출" ? ["수출", ...FOREIGN_COUNTRY_NAMES] : [tag];
-      const columns = tag === "경진대회" ? ["title"] : ["title", "details"];
+      const columns = tag === "경진대회" ? ["title"] : tag === "여성기업" ? ["title", "target", "details"] : ["title", "details"];
       searchParams.push(JSON.stringify(terms));
       return `EXISTS (SELECT 1 FROM json_each(?) AS business_term WHERE ${columns.map((column) => `instr(${column}, business_term.value) > 0`).join(" OR ")}) /* business-subcategory:${tag} */`;
     });
