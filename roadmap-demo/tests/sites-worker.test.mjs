@@ -265,10 +265,10 @@ function createDatabase() {
                 return { meta: { changes: 1 } };
               }
               if (statement.startsWith("UPDATE")) {
-                const [category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, updatedAt, id, duplicateLink, duplicateId] = params;
+                const [category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, updatedAt, id, currentLink, duplicateLink, duplicateId] = params;
                 const row = rows.find((item) => item.id === id);
                 if (!row) return { meta: { changes: 0 } };
-                if (duplicateLink && rows.some((item) => item.id !== duplicateId && item.link === duplicateLink)) return { meta: { changes: 0 } };
+                if (row.link !== currentLink && duplicateLink && rows.some((item) => item.id !== duplicateId && item.link === duplicateLink)) return { meta: { changes: 0 } };
                 Object.assign(row, { category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, updatedAt });
                 return { meta: { changes: 1 } };
               }
@@ -463,8 +463,19 @@ test("validates and persists catalog CRUD through D1", async () => {
   assert.equal(DB.rows[0].title, "수정된 사업");
   assert.equal(DB.rows[0].amountKrw, 300_000);
 
+  DB.rows.push({ ...DB.rows[0], id: "legacy-duplicate", title: "Legacy duplicate" });
+  const legacyUpdate = await request("/api/catalog-programs/legacy-duplicate", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...catalogInput, title: "Edited legacy duplicate" }),
+  });
+  assert.equal(legacyUpdate.status, 200);
+  assert.equal(DB.rows.find((row) => row.id === "legacy-duplicate").title, "Edited legacy duplicate");
+
   const deletedResponse = await request(`/api/catalog-programs/${created.item.id}`, { method: "DELETE" });
   assert.equal(deletedResponse.status, 200);
+  const deletedLegacyResponse = await request("/api/catalog-programs/legacy-duplicate", { method: "DELETE" });
+  assert.equal(deletedLegacyResponse.status, 200);
   assert.equal(DB.rows.length, 0);
 });
 
@@ -1102,18 +1113,22 @@ test("emits the files required by Sites packaging", async () => {
   await access(new URL("../dist/.openai/drizzle/0008_catalog_funding_exclusions.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0009_catalog_verified_year.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0010_catalog_link_unique.sql", import.meta.url));
+  await access(new URL("../dist/.openai/drizzle/0011_catalog_link_lookup.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/meta/_journal.json", import.meta.url));
   const migration = await readFile(new URL("../drizzle/0003_saved_roadmaps_tier.sql", import.meta.url), "utf8");
   assert.match(migration, /ADD COLUMN tier TEXT NOT NULL DEFAULT 'premium'/);
   assert.match(migration, /CHECK \(tier IN \('premium', 'standard'\)\)/);
   const journal = JSON.parse(await readFile(new URL("../drizzle/meta/_journal.json", import.meta.url), "utf8"));
   const linkMigration = await readFile(new URL("../drizzle/0010_catalog_link_unique.sql", import.meta.url), "utf8");
-  assert.match(linkMigration, /CREATE INDEX IF NOT EXISTS idx_catalog_programs_link/);
+  assert.match(linkMigration, /SELECT 1/);
+  const linkLookupMigration = await readFile(new URL("../drizzle/0011_catalog_link_lookup.sql", import.meta.url), "utf8");
+  assert.match(linkLookupMigration, /CREATE INDEX IF NOT EXISTS idx_catalog_programs_link/);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0003_saved_roadmaps_tier").length, 1);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0006_catalog_business_subcategories").length, 1);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0008_catalog_funding_exclusions").length, 1);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0009_catalog_verified_year").length, 1);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0010_catalog_link_unique").length, 1);
+  assert.equal(journal.entries.filter((entry) => entry.tag === "0011_catalog_link_lookup").length, 1);
   const server = await readFile(new URL("../dist/server/index.js", import.meta.url), "utf8");
   assert.deepEqual(server.match(/^export /gm), ["export "]);
 });

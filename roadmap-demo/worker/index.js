@@ -945,13 +945,6 @@ async function updateCatalog(request, db, id) {
   if (body.error) return apiError(body.status ?? 400, body.error);
   const validated = validateCatalogProgramWithOptions(body.value, await catalogOptionSets(db));
   if (validated.error) return apiError(400, validated.error, validated.fields);
-  const conflict = await catalogLinkConflict(db, validated.value.link, id);
-  if (conflict) return json({
-    error: "CATALOG_LINK_DUPLICATE",
-    message: `This source link is already registered as ${conflict.title}.`,
-    existing: conflict,
-  }, 409);
-
   const timestamp = new Date().toISOString();
   const item = { id, ...validated.value, updatedAt: timestamp };
   const result = await db.prepare(`
@@ -959,9 +952,9 @@ async function updateCatalog(request, db, id) {
     SET category = ?, title = ?, link = ?, amount_krw = ?, start_month = ?, end_month = ?,
         target = ?, details = ?, industries_json = ?, regions_json = ?, main_package = ?, updated_at = ?
     WHERE id = ?
-      AND NOT EXISTS (SELECT 1 FROM catalog_programs WHERE link = ? AND id <> ?)
+      AND (link = ? OR NOT EXISTS (SELECT 1 FROM catalog_programs WHERE link = ? AND id <> ?))
   `).bind(item.category, item.title, item.link, item.amountKrw, item.startMonth, item.endMonth,
-    item.target, item.details, JSON.stringify(item.industries), JSON.stringify(item.regions), item.mainPackage ? 1 : 0, timestamp, id, item.link, id).run();
+    item.target, item.details, JSON.stringify(item.industries), JSON.stringify(item.regions), item.mainPackage ? 1 : 0, timestamp, id, item.link, item.link, id).run();
   if (!result.meta?.changes) {
     const existing = await catalogLinkConflict(db, item.link, id);
     if (existing) return json({
