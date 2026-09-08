@@ -921,13 +921,22 @@ async function createCatalog(request, db) {
   const id = crypto.randomUUID();
   const timestamp = new Date().toISOString();
   const item = { id, ...validated.value, createdAt: timestamp, updatedAt: timestamp };
-  await db.prepare(`
+  const result = await db.prepare(`
     INSERT INTO catalog_programs
       (id, category, title, link, amount_krw, start_month, end_month, target, details,
        industries_json, regions_json, main_package, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    WHERE NOT EXISTS (SELECT 1 FROM catalog_programs WHERE link = ?)
   `).bind(id, item.category, item.title, item.link, item.amountKrw, item.startMonth, item.endMonth,
-    item.target, item.details, JSON.stringify(item.industries), JSON.stringify(item.regions), item.mainPackage ? 1 : 0, timestamp, timestamp).run();
+    item.target, item.details, JSON.stringify(item.industries), JSON.stringify(item.regions), item.mainPackage ? 1 : 0, timestamp, timestamp, item.link).run();
+  if (!result.meta?.changes) {
+    const existing = await catalogLinkConflict(db, item.link);
+    return json({
+      error: "CATALOG_LINK_DUPLICATE",
+      message: `This source link is already registered as ${existing?.title ?? "an existing catalog entry"}.`,
+      existing,
+    }, 409);
+  }
   return json({ item }, 201);
 }
 
@@ -950,8 +959,17 @@ async function updateCatalog(request, db, id) {
     SET category = ?, title = ?, link = ?, amount_krw = ?, start_month = ?, end_month = ?,
         target = ?, details = ?, industries_json = ?, regions_json = ?, main_package = ?, updated_at = ?
     WHERE id = ?
+      AND NOT EXISTS (SELECT 1 FROM catalog_programs WHERE link = ? AND id <> ?)
   `).bind(item.category, item.title, item.link, item.amountKrw, item.startMonth, item.endMonth,
-    item.target, item.details, JSON.stringify(item.industries), JSON.stringify(item.regions), item.mainPackage ? 1 : 0, timestamp, id).run();
+    item.target, item.details, JSON.stringify(item.industries), JSON.stringify(item.regions), item.mainPackage ? 1 : 0, timestamp, id, item.link, id).run();
+  if (!result.meta?.changes) {
+    const existing = await catalogLinkConflict(db, item.link, id);
+    if (existing) return json({
+      error: "CATALOG_LINK_DUPLICATE",
+      message: `This source link is already registered as ${existing.title}.`,
+      existing,
+    }, 409);
+  }
   if (!result.meta?.changes) return apiError(404, "등록된 사업을 찾을 수 없습니다.");
   return json({ item });
 }

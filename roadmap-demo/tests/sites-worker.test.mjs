@@ -252,7 +252,8 @@ function createDatabase() {
                 return { meta: { changes: 1 } };
               }
               if (statement.startsWith("INSERT")) {
-                const [id, category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, createdAt, updatedAt] = params;
+                const [id, category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, createdAt, updatedAt, duplicateLink] = params;
+                if (duplicateLink && rows.some((item) => item.link === duplicateLink)) return { meta: { changes: 0 } };
                 rows.push({ id, category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, createdAt, updatedAt });
                 return { meta: { changes: 1 } };
               }
@@ -264,9 +265,10 @@ function createDatabase() {
                 return { meta: { changes: 1 } };
               }
               if (statement.startsWith("UPDATE")) {
-                const [category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, updatedAt, id] = params;
+                const [category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, updatedAt, id, duplicateLink, duplicateId] = params;
                 const row = rows.find((item) => item.id === id);
                 if (!row) return { meta: { changes: 0 } };
+                if (duplicateLink && rows.some((item) => item.id !== duplicateId && item.link === duplicateLink)) return { meta: { changes: 0 } };
                 Object.assign(row, { category, title, link, amountKrw, startMonth, endMonth, target, details, industriesJson, regionsJson, mainPackage, updatedAt });
                 return { meta: { changes: 1 } };
               }
@@ -1106,8 +1108,7 @@ test("emits the files required by Sites packaging", async () => {
   assert.match(migration, /CHECK \(tier IN \('premium', 'standard'\)\)/);
   const journal = JSON.parse(await readFile(new URL("../drizzle/meta/_journal.json", import.meta.url), "utf8"));
   const linkMigration = await readFile(new URL("../drizzle/0010_catalog_link_unique.sql", import.meta.url), "utf8");
-  assert.match(linkMigration, /CREATE TRIGGER IF NOT EXISTS catalog_programs_link_unique_insert/);
-  assert.match(linkMigration, /CREATE TRIGGER IF NOT EXISTS catalog_programs_link_unique_update/);
+  assert.match(linkMigration, /CREATE INDEX IF NOT EXISTS idx_catalog_programs_link/);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0003_saved_roadmaps_tier").length, 1);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0006_catalog_business_subcategories").length, 1);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0008_catalog_funding_exclusions").length, 1);
