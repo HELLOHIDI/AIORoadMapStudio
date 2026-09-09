@@ -695,7 +695,7 @@ function CatalogForm({ categories, form, state, options, onChange, onCancel, onC
           </button>
           {importState.applicationPeriod ? (
             <p className="catalog-import__reference" role="status">
-              기업마당 신청기간(참고): <strong>{importState.applicationPeriod}</strong> · 지원기간 월은 직접 입력해 주세요.
+              기업마당 신청기간: <strong>{importState.applicationPeriod}</strong> · 날짜가 명확하면 접수기간 기준으로 시작월·종료월에 반영됩니다.
             </p>
           ) : null}
           {importState.error ? (
