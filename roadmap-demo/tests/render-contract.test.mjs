@@ -148,7 +148,7 @@ test("imports a Bizinfo URL into an editable catalog form", () => {
   assert.ok(app.includes('fetch("/api/catalog-programs/import"'));
   assert.ok(app.includes("data.draft"));
   assert.ok(app.includes("data.references?.applicationPeriod"));
-  assert.ok(app.includes("지원기간 월은 직접 입력해 주세요."));
+  assert.ok(app.includes("접수기간 기준으로 시작월·종료월에 반영됩니다."));
   assert.doesNotMatch(app, /parseCatalogText\(importText\)/);
   assert.ok(app.includes("catalog-import__errors"));
   assert.ok(app.includes("기업마당 내용 가져오기"));

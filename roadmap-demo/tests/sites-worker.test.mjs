@@ -20,15 +20,15 @@ const bizinfoHtmlFixture = `
   </div></li>
 </ul></body></html>`;
 
-test("extracts confident Bizinfo fields without mapping application dates to roadmap months", () => {
+test("extracts confident Bizinfo fields and maps clear application dates to roadmap months", () => {
   const result = extractBizinfoCatalogDraft(bizinfoHtmlFixture, bizinfoUrl);
   assert.equal(result.sourceUrl, bizinfoUrl);
   assert.equal(result.draft.title, "2026년 초기창업패키지 모집 공고");
   assert.equal(result.draft.category, "business");
   assert.equal(result.draft.link, bizinfoUrl);
   assert.equal(result.draft.amountKrw, 100_000_000);
-  assert.equal(result.draft.startMonth, "");
-  assert.equal(result.draft.endMonth, "");
+  assert.equal(result.draft.startMonth, 1);
+  assert.equal(result.draft.endMonth, 2);
   assert.equal(result.draft.target, "창업 후 3년 이내 초기창업기업");
   assert.match(result.draft.details, /사업 안정화/);
   assert.equal(result.references.applicationPeriod, "2026.01.23 ~ 2026.02.13");
@@ -36,9 +36,21 @@ test("extracts confident Bizinfo fields without mapping application dates to roa
   assert.deepEqual(result.draft.regions, ["전국"]);
 });
 
+test("keeps non-date and cross-year application periods manual", () => {
+  for (const applicationPeriod of ["상시 접수", "2026.12.15 ~ 2027.01.10", "2026.02.31 ~ 2026.03.10"]) {
+    const result = extractBizinfoCatalogDraft(
+      bizinfoHtmlFixture.replace("2026.01.23 ~ 2026.02.13", applicationPeriod),
+      bizinfoUrl,
+    );
+    assert.equal(result.draft.startMonth, "");
+    assert.equal(result.draft.endMonth, "");
+  }
+});
+
 test("applies catalog industry, region, and target policies to Bizinfo drafts", () => {
   const result = extractBizinfoCatalogDraft(
     bizinfoHtmlFixture
+      .replace("2026.01.23 ~ 2026.02.13", "2026.09.07 ~ 2026.09.17")
       .replace("2026년 초기창업패키지 모집 공고", "[경남] 창원시 CES2027 참가기업 지원사업")
       .replace("창업 후 3년 이내 초기창업기업", "신제품을 보유한 창원시 창업기업 중 CES유레카파크 조건을 충족하는 기업")
       .replace("사업화 자금(최대 1억원, 평균 0.5억원) 지원", "해외 마케팅, 항공료, 통역비, 물류비 지원"),
@@ -46,6 +58,8 @@ test("applies catalog industry, region, and target policies to Bizinfo drafts", 
   );
 
   assert.equal(result.draft.target, "신제품을 보유한 창원시 창업기업 중 CES유레카파크 조건을 충족하는 기업");
+  assert.equal(result.draft.startMonth, 9);
+  assert.equal(result.draft.endMonth, 9);
   assert.deepEqual(result.draft.industries, ["모든 영역"]);
   assert.deepEqual(result.draft.regions, ["경남", "창원"]);
 });

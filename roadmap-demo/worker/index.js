@@ -265,6 +265,24 @@ function bizinfoCategory(text) {
   return /(?:바우처|크레딧|포인트|쿠폰|이용권|서비스\s*이용)/u.test(text) ? "voucher" : "business";
 }
 
+function applicationPeriodMonths(value) {
+  const dates = [...value.matchAll(/(20\d{2})\s*[.-]\s*(\d{1,2})\s*[.-]\s*(\d{1,2})/gu)]
+    .slice(0, 2)
+    .map((match) => ({ year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) }));
+  if (dates.length !== 2) return { startMonth: "", endMonth: "" };
+  const [start, end] = dates;
+  const valid = ({ year, month, day }) => {
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+  };
+  // ponytail: the roadmap models one calendar year; keep cross-year periods manual until that model changes.
+  if (!valid(start) || !valid(end) || start.year !== end.year
+    || Date.UTC(start.year, start.month - 1, start.day) > Date.UTC(end.year, end.month - 1, end.day)) {
+    return { startMonth: "", endMonth: "" };
+  }
+  return { startMonth: start.month, endMonth: end.month };
+}
+
 function extractBizinfoCatalogDraft(html, sourceUrl) {
   if (typeof html !== "string" || html.length > BIZINFO_MAX_HTML_BYTES) {
     throw bizinfoImportError("BIZINFO_HTML_INVALID", "The Bizinfo HTML is invalid.");
@@ -276,13 +294,13 @@ function extractBizinfoCatalogDraft(html, sourceUrl) {
     throw bizinfoImportError("BIZINFO_HTML_STRUCTURE_CHANGED", "Bizinfo page structure changed; review the notice manually.");
   }
   const target = confidentTarget(overview);
+  const applicationMonths = applicationPeriodMonths(applicationPeriod);
   const draft = {
     category: bizinfoCategory(`${title}\n${overview}`),
     title,
     link: sourceUrl,
     amountKrw: largestKrwAmount(overview),
-    startMonth: "",
-    endMonth: "",
+    ...applicationMonths,
     target,
     details: overview,
     industries: [],
