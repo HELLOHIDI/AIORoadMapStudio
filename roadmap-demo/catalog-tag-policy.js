@@ -1,41 +1,3 @@
-import { DETAILED_INDUSTRY_OPTIONS, INDUSTRY_OPTIONS, NON_INDUSTRY_OPTIONS } from "./catalog-options.js";
-
-const nonIndustryTags = new Set(NON_INDUSTRY_OPTIONS);
-const weakIndustryMatchers = new Map([
-  ["데이터", /(?:데이터\s*(?:산업|기업|기반|활용|분석)|공공데이터|빅데이터)/i],
-  ["디자인", /(?:디자인\s*(?:산업|기업|전문|제품|콘텐츠)|산업디자인)/i],
-  ["디지털", /(?:디지털\s*(?:산업|기업|기술|전환|콘텐츠)|DX\b)/i],
-  ["서비스", /(?:서비스업|서비스\s*(?:산업|기업|플랫폼))/i],
-  ["소재", /(?:첨단소재|신소재|소재\s*(?:산업|기술|개발)|소재[ㆍ·/]?부품)/i],
-  ["솔루션", /(?:솔루션\s*(?:기업|산업|개발)|산업용\s*솔루션)/i],
-  ["플랫폼", /(?:플랫폼\s*(?:기업|산업|서비스|개발)|온라인\s*플랫폼)/i],
-]);
-
-const semanticIndustrySignals = Object.freeze([
-  ["AI", /\bAI\b|인공지능/i], ["로봇", /로봇/], ["반도체", /반도체/],
-  ["이차전지", /이차전지|2차전지|배터리/], ["자동차", /자동차|미래차|전기차/],
-  ["우주항공", /우주|항공|위성/], ["방위산업", /방산|방위산업/], ["조선", /조선|선박/],
-  ["해양수산", /해양수산|수산업|어업/], ["바이오", /바이오|생명공학/],
-  ["헬스케어", /헬스케어|의료|메디컬|병원/], ["의료기기", /의료기기/],
-  ["제약바이오", /제약|신약|의약품/], ["화장품", /화장품|뷰티|미용/],
-  ["식품", /식품|푸드|외식|먹거리/], ["농업", /농업|농산|원예|스마트팜/],
-  ["관광", /관광|여행/], ["콘텐츠", /콘텐츠|게임|웹툰|애니메이션|캐릭터|방송|영화|음악/],
-  ["패션", /패션|의류|섬유/], ["금융", /금융|핀테크|보험/],
-  ["물류", /물류|해운|항만|운송/], ["유통", /유통|리테일|커머스|쇼핑몰/],
-  ["에너지환경세라믹", /에너지환경세라믹/], ["신재생에너지", /신재생에너지|태양광|풍력/],
-  ["환경", /환경|재활용|폐자원|탄소중립/], ["수소", /수소/],
-  ["기계", /기계|금속가공/], ["전자", /전자|전기전자/], ["제조업", /제조|생산|공장|공정/],
-  ["IT", /\bIT\b|정보통신|소프트웨어|온라인|디지털|클라우드|SaaS|플랫폼/iu],
-  ["소비재", /소비재|생활용품|완제품|브랜드|제품\s*(?:판매|판로|수출)/],
-  ["서비스", /서비스업|서비스\s*(?:산업|기업)|사회서비스|교육서비스/],
-]);
-
-const redundantIndustryGroups = Object.freeze([
-  ["AI", "인공지능"], ["이차전지", "2차전지", "배터리"], ["VR", "가상현실"],
-  ["바이오", "바이오융합", "융합바이오"], ["자동차", "미래차", "미래모빌리티"],
-  ["콘텐츠", "문화콘텐츠"], ["SW", "SW개발"], ["제조", "제조업"],
-]);
-
 const provinceAliases = Object.freeze({
   서울: ["서울특별시", "서울"], 부산: ["부산광역시", "부산"], 대구: ["대구광역시", "대구"],
   인천: ["인천광역시", "인천"], 광주: ["광주광역시", "광주"], 대전: ["대전광역시", "대전"],
@@ -121,69 +83,14 @@ function industrySources(record, source) {
     field: String(source.field ?? source.category ?? ""),
     target: String(record.target ?? source.target_raw ?? ""),
     details: String(record.details ?? source.support_raw ?? ""),
-    body: "",
   };
-}
-
-function redundantIndustry(left, right) {
-  if (left === right) return true;
-  return redundantIndustryGroups.some((group) => group.includes(left) && group.includes(right));
-}
-
-function inferDetailedIndustries(record, source = {}, options = DETAILED_INDUSTRY_OPTIONS) {
-  const allowed = new Set(options.filter((tag) => !nonIndustryTags.has(tag)));
-  const sources = industrySources(record, source);
-  const combined = Object.values(sources).join(" ");
-  const scores = new Map();
-  const add = (tag, score) => {
-    if (allowed.has(tag)) scores.set(tag, Math.max(scores.get(tag) ?? 0, score));
-  };
-
-  for (const tag of options) {
-    if (!allowed.has(tag)) continue;
-    const weakMatcher = weakIndustryMatchers.get(tag);
-    if (weakMatcher && !weakMatcher.test(combined)) continue;
-    let score = 0;
-    if (sources.title.includes(tag)) score += 80 + tag.length;
-    if (sources.field.includes(tag)) score += 70 + tag.length;
-    if (sources.target.includes(tag)) score += 35 + tag.length;
-    if (sources.body.includes(tag)) score += 10 + tag.length;
-    if (Array.isArray(record.industries) && record.industries.includes(tag)) score += 110;
-    if (score) add(tag, score);
-  }
-  const classificationText = `${sources.title} ${sources.field} ${sources.target}`;
-  for (const [tag, pattern] of semanticIndustrySignals) if (pattern.test(classificationText)) add(tag, 75);
-
-  const selected = [];
-  for (const [tag] of [...scores].sort((a, b) => b[1] - a[1] || b[0].length - a[0].length || a[0].localeCompare(b[0], "ko"))) {
-    if (selected.some((chosen) => redundantIndustry(chosen, tag))) continue;
-    selected.push(tag);
-    if (selected.length === 2) return selected;
-  }
-
-  const broadEligibility = /사회적경제|사회연대경제|소상공인|창업기업|중소기업|중견기업/u.test(sources.target);
-  const fallbacks = broadEligibility
-    ? ["서비스", "제조업", "소비재", "산업재"]
-    : /제조|생산|공장|공정|시제품|부품|장비/u.test(combined)
-    ? ["제조업", "산업재", "서비스", "소비재"]
-    : /온라인|소프트웨어|정보통신|플랫폼|솔루션|데이터/u.test(combined)
-      ? ["IT", "서비스", "제조업", "소비재"]
-      : /제품|브랜드|판로|판매|전시|유통/u.test(combined)
-        ? ["소비재", "유통", "제조업", "서비스"]
-        : ["서비스", "제조업", "소비재", "산업재"];
-  for (const tag of fallbacks) {
-    if (!allowed.has(tag) || selected.some((chosen) => redundantIndustry(chosen, tag))) continue;
-    selected.push(tag);
-    if (selected.length === 2) break;
-  }
-  return selected;
 }
 
 const TOP_INDUSTRY_GROUPS = Object.freeze([
   ["AI·디지털", /\bAI\b|인공지능|IT|ICT|SW|소프트웨어|SaaS|데이터|디지털|플랫폼|클라우드|5G|IoT|블록체인|XR|AR|VR|메타버스|보안|양자|스마트시티|에듀테크/iu],
   ["바이오·헬스케어", /바이오|헬스|의료|제약|의약|병원|치료|웰니스|고령|천연물/iu],
   ["제조·소부장", /제조|산업재|기계|금속|소재|장비|반도체|전자|부품|세라믹|나노|공장|화학|인쇄|3D\s*프린터|스마트공장/iu],
-  ["모빌리티·로봇", /자동차|미래차|모빌리티|로봇|드론|항공|조선|자율주행|전기차|해운|항만/iu],
+  ["모빌리티·로봇", /자동차|미래차|모빌리티|로봇|드론|항공(?!료|비|권)|조선|자율주행|전기차|해운|항만/iu],
   ["에너지·환경", /에너지|환경|기후|탄소|수소|태양광|원전|배터리|이차전지|재생|리사이클|업사이클|친환경/iu],
   ["콘텐츠·관광", /콘텐츠|게임|문화|관광|여행|예술|웹툰|출판|스포츠|엔터|공예/iu],
   ["유통·소비재", /유통|리테일|소비재|식품|농식품|뷰티|화장품|미용|패션|생활|커피|F&B|주얼리|반려동물/iu],
@@ -196,15 +103,18 @@ const TOP_INDUSTRY_GROUPS = Object.freeze([
 
 export function inferIndustries(record, source = {}) {
   const sources = industrySources(record, source);
-  const detailed = inferDetailedIndustries(record, source);
-  const text = `${sources.title} ${sources.field} ${sources.target} ${sources.details} ${(record.industries ?? []).join(" ")} ${detailed.join(" ")}`;
+  const directText = `${sources.title} ${sources.field} ${sources.target} ${(record.industries ?? []).join(" ")}`;
   const selected = TOP_INDUSTRY_GROUPS
-    .map(([tag, pattern]) => ({ tag, score: [...text.matchAll(new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`))].length }))
-    .filter(({ score }) => score)
+    .map(([tag, pattern]) => ({
+      tag,
+      score: [...directText.matchAll(new RegExp(pattern.source, `${pattern.flags}g`))].length * 2
+        + [...sources.details.matchAll(new RegExp(pattern.source, `${pattern.flags}g`))].length,
+    }))
+    .filter(({ tag, score }) => score >= (tag === "금융·비즈니스서비스" ? 2 : 1))
     .sort((left, right) => right.score - left.score || left.tag.localeCompare(right.tag, "ko"))
     .slice(0, 1)
     .map(({ tag }) => tag);
-  return selected.length ? selected : ["금융·비즈니스서비스"];
+  return selected.length ? selected : ["모든 영역"];
 }
 
 export function inferRegions(record, source = {}) {

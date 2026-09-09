@@ -9,6 +9,7 @@ import {
   inferBusinessSubcategories,
 } from "../catalog-options.js";
 import { formatCatalogBulletText } from "../catalog-readability.js";
+import { inferIndustries, inferRegions } from "../catalog-tag-policy.js";
 
 const CATALOG_PATH = "/api/catalog-programs";
 const CATALOG_IMPORT_PATH = "/api/catalog-programs/import";
@@ -260,12 +261,6 @@ function confidentTarget(text) {
   return candidate?.replace(/^[☞▶]\s*/u, "").trim() ?? "";
 }
 
-function restrictedRegions(text) {
-  const regionLines = text.split("\n").filter((line) => /(?:지역|소재|입주|관내|사업장|본점)/u.test(line));
-  return [...new Set([...REGIONS].filter((region) => region !== "전국"
-    && regionLines.some((line) => line.includes(region))))];
-}
-
 function bizinfoCategory(text) {
   return /(?:바우처|크레딧|포인트|쿠폰|이용권|서비스\s*이용)/u.test(text) ? "voucher" : "business";
 }
@@ -280,21 +275,23 @@ function extractBizinfoCatalogDraft(html, sourceUrl) {
   if (!title || !overview) {
     throw bizinfoImportError("BIZINFO_HTML_STRUCTURE_CHANGED", "Bizinfo page structure changed; review the notice manually.");
   }
+  const target = confidentTarget(overview);
+  const draft = {
+    category: bizinfoCategory(`${title}\n${overview}`),
+    title,
+    link: sourceUrl,
+    amountKrw: largestKrwAmount(overview),
+    startMonth: "",
+    endMonth: "",
+    target,
+    details: overview,
+    industries: [],
+    regions: [],
+    mainPackage: false,
+  };
   return {
     sourceUrl,
-    draft: {
-      category: bizinfoCategory(`${title}\n${overview}`),
-      title,
-      link: sourceUrl,
-      amountKrw: largestKrwAmount(overview),
-      startMonth: "",
-      endMonth: "",
-      target: confidentTarget(overview),
-      details: overview,
-      industries: [],
-      regions: restrictedRegions(overview),
-      mainPackage: false,
-    },
+    draft: { ...draft, industries: inferIndustries(draft), regions: inferRegions(draft) },
     references: { applicationPeriod },
   };
 }

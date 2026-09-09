@@ -32,7 +32,22 @@ test("extracts confident Bizinfo fields without mapping application dates to roa
   assert.equal(result.draft.target, "창업 후 3년 이내 초기창업기업");
   assert.match(result.draft.details, /사업 안정화/);
   assert.equal(result.references.applicationPeriod, "2026.01.23 ~ 2026.02.13");
-  assert.deepEqual(result.draft.industries, []);
+  assert.deepEqual(result.draft.industries, ["모든 영역"]);
+  assert.deepEqual(result.draft.regions, ["전국"]);
+});
+
+test("applies catalog industry, region, and target policies to Bizinfo drafts", () => {
+  const result = extractBizinfoCatalogDraft(
+    bizinfoHtmlFixture
+      .replace("2026년 초기창업패키지 모집 공고", "[경남] 창원시 CES2027 참가기업 지원사업")
+      .replace("창업 후 3년 이내 초기창업기업", "신제품을 보유한 창원시 창업기업 중 CES유레카파크 조건을 충족하는 기업")
+      .replace("사업화 자금(최대 1억원, 평균 0.5억원) 지원", "해외 마케팅, 항공료, 통역비, 물류비 지원"),
+    bizinfoUrl,
+  );
+
+  assert.equal(result.draft.target, "신제품을 보유한 창원시 창업기업 중 CES유레카파크 조건을 충족하는 기업");
+  assert.deepEqual(result.draft.industries, ["모든 영역"]);
+  assert.deepEqual(result.draft.regions, ["경남", "창원"]);
 });
 
 test("rejects a Bizinfo page whose expected structure is missing", () => {

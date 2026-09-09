@@ -177,6 +177,18 @@ test("classifies support programs into one upper-industry tag", () => {
   assert.equal(industries.some((tag) => NON_INDUSTRY_OPTIONS.includes(tag)), false);
 });
 
+test("uses all industries when only generic support methods are mentioned", () => {
+  assert.deepEqual(inferIndustries({
+    title: "CES 참가기업 지원사업",
+    target: "신제품을 보유한 창업기업",
+    details: "해외 마케팅, 항공료, 통역비, 물류비 지원",
+  }), ["모든 영역"]);
+});
+
+test("uses a clear industry signal from support details", () => {
+  assert.deepEqual(inferIndustries({ title: "기술 고도화 지원", target: "창업기업", details: "바이오 제품 개발 지원" }), ["바이오·헬스케어"]);
+});
+
 test("adds unregistered city and county tags from the title and eligibility", () => {
   assert.deepEqual(
     inferRegions({ title: "[충남] 부여군 2026년 기업지원사업", target: "부여군 소재 기업", regions: ["충남"] }),
