@@ -11,6 +11,7 @@ const hosting = path.join(root, ".openai", "hosting.json");
 const migrations = path.join(root, "drizzle");
 const catalogOptions = path.join(root, "catalog-options.js");
 const catalogReadability = path.join(root, "catalog-readability.js");
+const catalogTagPolicy = path.join(root, "catalog-tag-policy.js");
 const catalogImport = `import {
   BUSINESS_COMPETITION_TERMS,
   BUSINESS_SUBCATEGORY_OPTIONS,
@@ -23,7 +24,7 @@ const catalogImport = `import {
 } from "../catalog-options.js";`;
 const catalogReadabilityImport = 'import { formatCatalogBulletText } from "../catalog-readability.js";';
 
-for (const file of [index, worker, hosting, migrations, catalogOptions, catalogReadability]) {
+for (const file of [index, worker, hosting, migrations, catalogOptions, catalogReadability, catalogTagPolicy]) {
   if (!existsSync(file)) throw new Error("Missing Sites build input: " + file);
 }
 
@@ -55,5 +56,6 @@ const workerSource = workerTemplate
   .replace("export function validateRoadmapDocumentForStorage", "function validateRoadmapDocumentForStorage");
 writeFileSync(path.join(dist, "server", "index.js"), workerSource);
 copyFileSync(hosting, path.join(dist, ".openai", "hosting.json"));
+copyFileSync(catalogTagPolicy, path.join(dist, "catalog-tag-policy.js"));
 
 console.log("Prepared Sites build: worker, hosting config, and D1 migrations");

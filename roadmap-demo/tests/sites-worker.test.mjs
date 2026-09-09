@@ -1125,6 +1125,7 @@ test("hydrates legacy roadmap JSON tier from the canonical row and rejects misma
 test("emits the files required by Sites packaging", async () => {
   await access(new URL("../dist/client/index.html", import.meta.url));
   await access(new URL("../dist/server/index.js", import.meta.url));
+  await access(new URL("../dist/catalog-tag-policy.js", import.meta.url));
   await access(new URL("../dist/.openai/hosting.json", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0000_catalog_programs.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0001_saved_roadmaps.sql", import.meta.url));
