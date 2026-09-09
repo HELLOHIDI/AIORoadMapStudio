@@ -136,3 +136,8 @@ export function copyCatalogProgram(program, sequence, createId = () => globalThi
     sequence,
   };
 }
+
+export function isCatalogProgramAdded(programs, catalogProgram) {
+  const link = catalogProgram.link?.trim();
+  return Boolean(link) && programs.some((program) => program.link?.trim() === link);
+}

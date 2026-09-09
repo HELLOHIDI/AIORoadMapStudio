@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BUSINESS_SUBCATEGORY_OPTIONS, INDUSTRY_OPTIONS, REGION_OPTIONS } from "../catalog-options.js";
 import { groupAdministrativeRegionOptions } from "../catalog-tag-policy.js";
 import { formatAmount, formatRawAmount, parseRawAmount } from "./amount.js";
-import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, EMPTY_CATALOG_PROGRAM, formatCatalogBulletText } from "./catalog.js";
+import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, EMPTY_CATALOG_PROGRAM, formatCatalogBulletText, isCatalogProgramAdded } from "./catalog.js";
 import { runPdfPreflight } from "./pdf-preflight.js";
 import { detectPdfRuntime, PDF_RUNTIME } from "./pdf-runtime.js";
 import { selectRoadmapPrograms } from "./roadmap-auto-selection.js";
@@ -1302,7 +1302,12 @@ export function App() {
       setCatalogNotice({ tone: "error", message: "This category is not available for the selected roadmap tier." });
       return;
     }
+    if (isCatalogProgramAdded(document.programs, program)) {
+      setCatalogNotice({ tone: "warning", message: `“${program.title}”은 이미 로드맵에 추가되어 있습니다.`, returnToRoadmap: true });
+      return;
+    }
     setDocument((current) => {
+      if (isCatalogProgramAdded(current.programs, program)) return current;
       const nextSequence = current.programs.reduce((max, item) => Math.max(max, item.sequence), -1) + 1;
       return { ...current, programs: [...current.programs, copyCatalogProgram(program, nextSequence)] };
     });
@@ -1315,11 +1320,7 @@ export function App() {
       setLayoutNotice("현재 로드맵 유형에서 사용할 수 없는 사업입니다.");
       return;
     }
-    const alreadyPlaced = document.programs.some((item) => (
-      item.category === program.category
-      && item.title === program.title
-      && (item.link || "") === (program.link || "")
-    ));
+    const alreadyPlaced = isCatalogProgramAdded(document.programs, program);
     const categoryCount = document.programs.filter((item) => item.category === program.category).length;
     if (alreadyPlaced) {
       setLayoutNotice("이미 로드맵에 배치된 추천 사업입니다.");
@@ -1794,9 +1795,6 @@ export function App() {
   const hasCatalogFilters = Boolean(catalogCategory !== firstCatalogCategory || catalogQuery || catalogPeriodChanged || catalogIndustries.length || catalogRegions.length || catalogBusinessSubcategories.length);
   const activePrograms = document.programs.filter((program) => program.category === activeCategory && allowedCategoryKeys.has(program.category));
   const draftRecommendations = draftGeneration.summary?.recommendations ?? [];
-  const placedRecommendationKeys = new Set(document.programs.map((program) => (
-    `${program.category}\u0000${program.title}\u0000${program.link || ""}`
-  )));
   const categoryPlacementCounts = new Map(allowedCategories.map(({ key }) => [
     key,
     document.programs.filter((program) => program.category === key).length,
@@ -1976,8 +1974,7 @@ export function App() {
                 <div className="auto-match-recommendations__list">
                   {draftRecommendations.map((program, index) => {
                     const category = allowedCategories.find(({ key }) => key === program.category);
-                    const recommendationKey = `${program.category}\u0000${program.title}\u0000${program.link || ""}`;
-                    const placed = placedRecommendationKeys.has(recommendationKey);
+                    const placed = isCatalogProgramAdded(document.programs, program);
                     const categoryFull = !category || (categoryPlacementCounts.get(program.category) ?? 0) >= category.maxRows;
                     return (
                       <article className="auto-match-recommendation" key={program.id}>
@@ -2194,6 +2191,7 @@ export function App() {
                 ) : null}
                 {catalog.items.map((program) => {
                   const verifiedThisYear = program.verifiedYear === catalog.currentYear;
+                  const addedToRoadmap = isCatalogProgramAdded(document.programs, program);
                   return <article className="catalog-row" key={program.id}>
                     <div className="catalog-row__main">
                       <div className="catalog-row__title">
@@ -2215,7 +2213,7 @@ export function App() {
                       </details>
                     </div>
                     <div className="catalog-row__actions">
-                      <button type="button" className="button-primary" onClick={() => addCatalogProgram(program)}>로드맵에 추가</button>
+                      <button type="button" className="button-primary" disabled={addedToRoadmap} onClick={() => addCatalogProgram(program)}>{addedToRoadmap ? "추가됨" : "로드맵에 추가"}</button>
                       <button
                         type="button"
                         className={`catalog-verification-toggle${verifiedThisYear ? " is-verified" : ""}${verifyingId === program.id ? " is-loading" : ""}`}
