@@ -23,6 +23,7 @@ const catalogImport = `import {
   inferBusinessSubcategories,
 } from "../catalog-options.js";`;
 const catalogReadabilityImport = 'import { formatCatalogBulletText } from "../catalog-readability.js";';
+const catalogTagPolicyImport = 'import { inferIndustries, inferRegions } from "../catalog-tag-policy.js";';
 
 for (const file of [index, worker, hosting, migrations, catalogOptions, catalogReadability, catalogTagPolicy]) {
   if (!existsSync(file)) throw new Error("Missing Sites build input: " + file);
@@ -41,21 +42,26 @@ copyFileSync(
 );
 rmSync(path.join(dist, "catalog-options.js"), { force: true });
 rmSync(path.join(dist, "server", "catalog-options.js"), { force: true });
+rmSync(path.join(dist, "catalog-tag-policy.js"), { force: true });
 const workerTemplate = readFileSync(worker, "utf8").replaceAll("\r\n", "\n");
 if (!workerTemplate.includes(catalogImport)) throw new Error("Missing catalog options import in Worker source");
 if (!workerTemplate.includes(catalogReadabilityImport)) throw new Error("Missing catalog readability import in Worker source");
+if (!workerTemplate.includes(catalogTagPolicyImport)) throw new Error("Missing catalog tag policy import in Worker source");
 const catalogOptionsSource = readFileSync(catalogOptions, "utf8").replaceAll("export const ", "const ");
 const catalogReadabilitySource = readFileSync(catalogReadability, "utf8")
   .replace("export function formatCatalogBulletText", "function formatCatalogBulletText")
   .replace("export function classifyCatalogReadability", "function classifyCatalogReadability");
+const catalogTagPolicySource = readFileSync(catalogTagPolicy, "utf8")
+  .replaceAll("export const ", "const ")
+  .replaceAll("export function ", "function ");
 const workerSource = workerTemplate
   .replace(catalogImport, catalogOptionsSource)
   .replace(catalogReadabilityImport, catalogReadabilitySource)
+  .replace(catalogTagPolicyImport, () => catalogTagPolicySource)
   .replace("export function inferBusinessSubcategories", "function inferBusinessSubcategories")
   .replace("export function validateCatalogProgram", "function validateCatalogProgram")
   .replace("export function validateRoadmapDocumentForStorage", "function validateRoadmapDocumentForStorage");
 writeFileSync(path.join(dist, "server", "index.js"), workerSource);
 copyFileSync(hosting, path.join(dist, ".openai", "hosting.json"));
-copyFileSync(catalogTagPolicy, path.join(dist, "catalog-tag-policy.js"));
 
 console.log("Prepared Sites build: worker, hosting config, and D1 migrations");
