@@ -73,9 +73,9 @@ export function groupAdministrativeRegionOptions(options = []) {
   };
 }
 
-const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const hasDelimited = (text, value) => new RegExp(`(^|[^가-힣])${escapeRegExp(value)}(?=$|[^가-힣])`, "u").test(text);
-const restrictionMentions = (text, value) => new RegExp(`${escapeRegExp(value)}\\s*(?:소재|지역|관내|내\\s*(?:본사|사업장|기업)|에\\s*(?:본사|사업장)|로\\s*이전)`, "u").test(text);
+const escapePolicyRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const hasDelimited = (text, value) => new RegExp(`(^|[^가-힣])${escapePolicyRegExp(value)}(?=$|[^가-힣])`, "u").test(text);
+const restrictionMentions = (text, value) => new RegExp(`${escapePolicyRegExp(value)}\\s*(?:소재|지역|관내|내\\s*(?:본사|사업장|기업)|에\\s*(?:본사|사업장)|로\\s*이전)`, "u").test(text);
 
 function industrySources(record, source) {
   return {

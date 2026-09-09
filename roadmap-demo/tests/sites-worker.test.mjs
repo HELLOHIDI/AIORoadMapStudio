@@ -1125,7 +1125,6 @@ test("hydrates legacy roadmap JSON tier from the canonical row and rejects misma
 test("emits the files required by Sites packaging", async () => {
   await access(new URL("../dist/client/index.html", import.meta.url));
   await access(new URL("../dist/server/index.js", import.meta.url));
-  await access(new URL("../dist/catalog-tag-policy.js", import.meta.url));
   await access(new URL("../dist/.openai/hosting.json", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0000_catalog_programs.sql", import.meta.url));
   await access(new URL("../dist/.openai/drizzle/0001_saved_roadmaps.sql", import.meta.url));
@@ -1151,5 +1150,7 @@ test("emits the files required by Sites packaging", async () => {
   assert.equal(journal.entries.filter((entry) => entry.tag === "0010_catalog_link_unique").length, 1);
   assert.equal(journal.entries.filter((entry) => entry.tag === "0011_catalog_link_lookup").length, 1);
   const server = await readFile(new URL("../dist/server/index.js", import.meta.url), "utf8");
+  assert.doesNotMatch(server, /from "\.\.\/catalog-tag-policy\.js"/);
+  assert.match(server, /function inferIndustries/);
   assert.deepEqual(server.match(/^export /gm), ["export "]);
 });
