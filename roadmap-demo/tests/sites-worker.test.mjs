@@ -7,6 +7,7 @@ import worker, { validateCatalogProgram } from "../worker/index.js";
 const { extractBizinfoCatalogDraft, fetchBizinfoHtml, validateBizinfoDetailUrl } = worker;
 
 const bizinfoUrl = "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000117819";
+const copiedBizinfoUrl = "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?hashCode=&rowsSel=&rows=15&cpage=&cat=&schPblancDiv=&schJrsdCodeTy=&schWntyAt=&schAreaDetailCodes=&schEndAt=N&orderGb=&sort=&preKeywords=&condition=&condition1=&keyword=&pblancId=PBLN_000000000126288";
 
 const bizinfoHtmlFixture = `
 <html><head><title>2026년 초기창업패키지 모집 공고</title></head><body>
@@ -51,6 +52,10 @@ test("validates and safely fetches one Bizinfo detail HTML page", async () => {
   assert.equal(validated.error, undefined);
   assert.equal(validated.value.toString(), bizinfoUrl);
 
+  const copied = validateBizinfoDetailUrl(copiedBizinfoUrl);
+  assert.equal(copied.error, undefined);
+  assert.equal(copied.value.toString(), "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000126288");
+
   let requestOptions;
   const result = await fetchBizinfoHtml(bizinfoUrl, {
     fetchImpl: async (_url, options) => {
@@ -72,7 +77,7 @@ test("rejects unsupported Bizinfo URLs and unsafe responses", async () => {
     "https://evil.example/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_1",
     "https://www.bizinfo.go.kr/other?pblancId=PBLN_1",
     "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do",
-    `${bizinfoUrl}&other=value`,
+    `${bizinfoUrl}&pblancId=PBLN_2`,
   ]) {
     assert.equal(validateBizinfoDetailUrl(value).error.code, "BIZINFO_URL_NOT_ALLOWED");
   }
