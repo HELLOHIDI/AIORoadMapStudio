@@ -8,7 +8,7 @@ import {
   inferBusinessSubcategories,
 } from "../catalog-options.js";
 import { ADMINISTRATIVE_REGION_GROUPS, groupAdministrativeRegionOptions, inferIndustries, inferRegions } from "../catalog-tag-policy.js";
-import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, formatCatalogBulletText, parseCatalogText } from "../src/catalog.js";
+import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, formatCatalogBulletText, isCatalogProgramAdded, parseCatalogText } from "../src/catalog.js";
 import { classifyCatalogReadability } from "../catalog-readability.js";
 
 test("keeps consulting out of the shared catalog categories", () => {
@@ -270,4 +270,15 @@ test("copies a catalog master into an independent roadmap program", () => {
   assert.equal("verifiedYear" in copy, false);
   copy.title = "클라이언트용 수정";
   assert.equal(master.title, "원본 사업");
+});
+
+test("detects a catalog program already copied to the roadmap by source link", () => {
+  const programs = [{ category: "business", title: "로드맵에서 수정한 이름", link: "https://example.test/program" }];
+
+  assert.equal(isCatalogProgramAdded(programs, {
+    category: "voucher", title: "카탈로그 원본 이름", link: "https://example.test/program",
+  }), true);
+  assert.equal(isCatalogProgramAdded(programs, {
+    category: "business", title: "로드맵에서 수정한 이름", link: "https://example.test/other",
+  }), false);
 });
