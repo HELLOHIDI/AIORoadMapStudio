@@ -81,15 +81,17 @@ function validateBizinfoDetailUrl(rawUrl) {
     return { error: bizinfoImportError("BIZINFO_URL_INVALID", "Bizinfo detail URL is invalid.") };
   }
 
-  const params = [...url.searchParams.entries()];
-  const pblancId = url.searchParams.get("pblancId") ?? "";
+  const pblancIds = url.searchParams.getAll("pblancId");
+  const pblancId = pblancIds[0] ?? "";
   if (url.origin !== BIZINFO_ORIGIN || url.pathname !== BIZINFO_DETAIL_PATH || url.username || url.password
-    || url.port || url.hash || params.length !== 1 || params[0][0] !== "pblancId"
+    || url.port || url.hash || pblancIds.length !== 1
     || !/^[A-Za-z0-9_-]{1,100}$/.test(pblancId)) {
     return { error: bizinfoImportError("BIZINFO_URL_NOT_ALLOWED", "Only a valid Bizinfo detail URL is allowed.") };
   }
 
-  return { value: url };
+  const canonicalUrl = new URL(BIZINFO_DETAIL_PATH, BIZINFO_ORIGIN);
+  canonicalUrl.searchParams.set("pblancId", pblancId);
+  return { value: canonicalUrl };
 }
 
 async function readBoundedResponseText(response, maxBytes) {
