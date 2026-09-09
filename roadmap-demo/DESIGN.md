@@ -24,7 +24,7 @@
   - Make selecting a catalog program faster than retyping a roadmap row.
   - Keep catalog masters independent from client-specific roadmap copies.
   - Keep the existing roadmap validation, preview, and PDF workflow intact while offering a parallel native editable PPTX download.
-  - Let a team lead attach a modification request to an exact roadmap bar and track it through assignee completion to team-lead resolution.
+  - Let any visitor attach a modification request to an exact roadmap bar and track it through completion and resolution.
 - Non-goals:
   - Personal accounts, named attribution, per-person permissions, or a general approval/moderation platform.
   - Replies, mentions, attachments, notifications, comment editing/deletion, priority, due dates, or real-time collaboration.
@@ -112,13 +112,13 @@
   - The roadmap `구분` control offers `마케팅` as a display-only choice backed by the existing `business` lane. It changes only the bar prefix from `[사업화]` to `[마케팅]`.
   - Inline catalog status feedback with a route back to roadmap editing.
   - `RoadmapFeedbackComposer` anchored beside a selected bar only when that program has no feedback.
-  - `RoadmapFeedbackInspector` for an existing thread, with program title, state, flat timeline, team-lead authentication when needed, and current-state actions.
+  - `RoadmapFeedbackInspector` for an existing thread, with program title, state, flat timeline, and current-state actions.
 - Variants and states:
   - Mode switch: active and inactive.
   - Catalog row: default, focused, expanded if needed, submitting, and mutation error.
   - Add action: ready, submitting, added, and disabled for invalid records.
   - Form: create and edit, sharing the same field policy.
-  - Feedback: none/quick composer, `수정 필요`, `수정 완료`, `해결`, loading, retryable error, unauthenticated lead action, and authenticated lead action.
+  - Feedback: none/quick composer, `수정 필요`, `수정 완료`, `해결`, loading, retryable error, and current-state actions.
 - Token/component ownership: extend existing CSS classes and variables; do not introduce a design-system layer or dependency for this feature.
 
 ## Accessibility
@@ -184,7 +184,7 @@
   - Use the existing Sites D1 capability through a logical `DB` binding for central structured persistence. Sites owns the deployed database resource and binding.
   - Route catalog requests through the existing Worker before its unchanged static-asset and app-shell fallback behavior.
   - Public shared writes still require API-boundary validation and safe failure handling.
-  - Keep shared team-lead password verification, retry limits, and sessions in the Worker/D1 boundary. Browser code receives only authenticated session state and never the password verifier or session record.
+  - Keep feedback access public and unauthenticated; preserve API-boundary validation and explicit action headers.
 - Test/screenshot expectations:
   - Add focused behavior checks for mode switching, catalog load/CRUD, copy-on-select, and master/copy independence.
   - Keep the existing roadmap policy, PDF preflight, render-contract, build, and Sites tests passing.
@@ -226,9 +226,9 @@
 ## Roadmap feedback data and API policy
 
 - Storage: keep one thread per saved roadmap/program pair and a chronological event list in D1. Feedback is not part of `document_json`.
-- State machine: initial team-lead feedback creates `수정 필요`; the public assignee/editor may transition it to `수정 완료`; an authenticated team lead may transition it to `해결` or back to `수정 필요` with a required rework message.
-- Authentication: use one shared team-lead password verifier stored as a server secret, a short-lived HttpOnly/Secure/SameSite session, and D1-backed server throttling. No personal account or named actor record is created.
-- API boundary: list feedback by saved roadmap; create initial feedback for a stable program ID; transition one program thread with the allowed action. Validate roadmap/program existence, request shape, text length, current state, team-lead session where required, and JSON content type.
+- State machine: initial feedback creates `수정 필요`; any visitor may transition it to `수정 완료`, `해결`, or back to `수정 필요` with a required rework message.
+- Authentication: feedback has no password, session, personal account, or named attribution.
+- API boundary: list feedback by saved roadmap; create initial feedback for a stable program ID; transition one program thread with the allowed action. Validate roadmap/program existence, request shape, text length, current state, the explicit action header, and JSON content type.
 - Deletion: roadmap deletion removes its feedback; a program removed from a saved roadmap must not leave user-visible orphaned feedback.
 - Export isolation: the inspector, quick composer, unresolved marker, selection outline, and state indicators are screen-only and excluded from print, PDF, and PPTX. Roadmap bars never show a feedback or comment count.
 
@@ -236,5 +236,5 @@
 
 - [x] Central persistence/API: Sites D1 with logical `DB` binding and Worker-owned catalog routes.
 - [x] MVP long-list scaling: server-bounded offset pagination, 50 by default and 100 maximum.
-- [x] Roadmap feedback MVP: shared team-lead password, no personal accounts, authoring-only quick composer and responsive inspector.
-- [ ] Revisit personal authentication, individual revocation/attribution, and broader moderation before production exposure / product owner / accepted shared-credential risk.
+- [x] Roadmap feedback MVP: public unauthenticated access, no personal accounts, authoring-only quick composer and responsive inspector.
+- [ ] Revisit personal authentication, individual attribution, and broader moderation before production exposure / product owner / accepted public-write risk.

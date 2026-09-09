@@ -223,6 +223,7 @@ test("keeps roadmap feedback anchored to bars and isolated from exports", () => 
   assert.ok(app.includes('composerOpen={item.id === selectedFeedbackProgramId && !feedbackByProgram[item.id]}'));
   assert.match(styles, /\.roadmap-section:has\(\.feedback-composer\)\s*\{[^}]*z-index:\s*10;/s);
   assert.ok(app.includes('event.role === "lead" || event.role === "team_lead"'));
+  assert.doesNotMatch(app, /팀장 비밀번호|feedback-auth\/session|type="password"/);
   assert.ok(app.includes('onAction("complete")'));
   assert.ok(app.includes('onAction("rework")'));
   assert.ok(app.includes('onAction("resolve")'));

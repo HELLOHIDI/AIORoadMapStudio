@@ -37,8 +37,8 @@ Build app UI in `src/`. Preserve the Sites packaging and static-fallback contrac
 - Clicking or keyboard-activating a roadmap bar is the feedback entry point. Preserve drag/drop and ArrowUp/ArrowDown lane movement without accidental feedback activation after a drag.
 - When a program has no feedback, show a compact authoring-only composer beside the selected bar. When feedback exists, show only a screen-only unresolved marker and open a non-modal inspector from the right; at narrow widths the inspector becomes a full-width lower panel. Never show a feedback or comment count on a roadmap bar.
 - Keep the inspector minimal: program title, current state, chronological role/time/text timeline, and only the action available for the current state.
-- The state flow is `수정 필요` → `수정 완료` → `해결`. The public assignee/editor may mark `수정 완료`; only the shared authenticated team-lead role may create feedback, request rework, or confirm `해결`.
-- Team-lead access uses one shared password and a short-lived server session, not personal accounts. Keep password verifiers and session secrets in server-side secret bindings, apply server-side retry limits, and never place plaintext credentials in source, browser storage, responses, or logs.
+- The state flow is `수정 필요` → `수정 완료` → `해결`. Any visitor may create feedback, mark `수정 완료`, request rework, or confirm `해결`; do not require a password, session, or personal account.
+- Feedback writes are shared and unauthenticated by explicit product decision. Keep request validation, the explicit feedback action header, state-transition checks, and visible failure handling.
 - Feedback UI, selection outlines, and state markers are authoring-only and must remain excluded from print, PDF, PPTX, and ANP client-facing output.
 - Failed feedback reads, writes, or authentication must leave the active in-memory roadmap unchanged. Removing a program must immediately hide its feedback from reads and remove its stale thread on the next roadmap save; deleting a roadmap must clean only its associated feedback.
 
