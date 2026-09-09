@@ -2,19 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import worker from "../worker/index.js";
 
-function bytesToBase64Url(bytes) {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
-}
-
-async function passwordHash(password, salt = "feedback-test-salt") {
-  const saltBytes = new TextEncoder().encode(salt);
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: saltBytes, iterations: 100_000 }, key, 256);
-  return `pbkdf2$100000$${bytesToBase64Url(saltBytes)}$${bytesToBase64Url(new Uint8Array(bits))}`;
-}
-
 function createFeedbackDatabase() {
   const roadmaps = [];
   const feedback = [];
@@ -138,8 +125,9 @@ function createFeedbackDatabase() {
               throw new Error(`Unsupported first: ${statement}`);
             },
             async run() {
-              if (statement.startsWith("INSERT INTO roadmap_feedback ")) {
+              if (statement.startsWith("INSERT OR IGNORE INTO roadmap_feedback ")) {
                 const [id, roadmapId, programId, status, createdAt, updatedAt] = params;
+                if (feedback.some((item) => item.roadmapId === roadmapId && item.programId === programId)) return { meta: { changes: 0 } };
                 feedback.push({ id, roadmapId, programId, status, createdAt, updatedAt });
                 return { meta: { changes: 1 } };
               }
@@ -147,6 +135,7 @@ function createFeedbackDatabase() {
                 const [status, updatedAt, id] = params;
                 const row = feedback.find((item) => item.id === id);
                 if (!row) return { meta: { changes: 0 } };
+                if (statement.includes("AND status = 'completed'") && row.status !== "completed") return { meta: { changes: 0 } };
                 Object.assign(row, { status, updatedAt });
                 return { meta: { changes: 1 } };
               }
@@ -249,82 +238,25 @@ async function request(env, path, options) {
   return worker.fetch(new Request(`https://example.test${path}`, options), env);
 }
 
-async function leadCookie(env, password = "lead-secret") {
-  const response = await request(env, "/api/feedback-auth/session", {
-    method: "POST",
-    headers: { "content-type": "application/json", "cf-connecting-ip": "203.0.113.10", "x-aio-feedback-action": "1" },
-    body: JSON.stringify({ password }),
-  });
-  assert.equal(response.status, 200);
-  return response.headers.get("set-cookie").split(";")[0];
-}
-
-test("auth uses bounded retries, HttpOnly cookies, and hash rotation", async () => {
+test("feedback password endpoint is removed", async () => {
   const DB = createFeedbackDatabase();
-  const env = { DB, FEEDBACK_PASSWORD_HASH: await passwordHash("lead-secret") };
-
-  const anonymous = await request(env, "/api/feedback-auth/session");
-  assert.deepEqual(await anonymous.json(), { authenticated: false });
-
-  const missingActionHeader = await request(env, "/api/feedback-auth/session", {
+  const response = await request({ DB }, "/api/feedback-auth/session", {
     method: "POST",
-    headers: { "content-type": "application/json", "cf-connecting-ip": "198.51.100.6" },
-    body: JSON.stringify({ password: "lead-secret" }),
+    headers: { "content-type": "application/json", "x-aio-feedback-action": "1" },
+    body: JSON.stringify({ password: "unused" }),
   });
-  assert.equal(missingActionHeader.status, 403);
-
-  for (let index = 0; index < 5; index += 1) {
-    const failed = await request(env, "/api/feedback-auth/session", {
-      method: "POST",
-      headers: { "content-type": "application/json", "cf-connecting-ip": "198.51.100.7", "x-aio-feedback-action": "1" },
-      body: JSON.stringify({ password: "wrong" }),
-    });
-    assert.equal(failed.status, 401);
-  }
-  const locked = await request(env, "/api/feedback-auth/session", {
-    method: "POST",
-    headers: { "content-type": "application/json", "cf-connecting-ip": "198.51.100.7", "x-aio-feedback-action": "1" },
-    body: JSON.stringify({ password: "lead-secret" }),
-  });
-  assert.equal(locked.status, 429);
-
-  const cookie = await leadCookie(env);
-  assert.match(cookie, /^feedback_session=/);
-  assert.equal(DB.sessions[0].expiresAt - DB.sessions[0].createdAt, 8 * 60 * 60);
-  const authenticated = await request(env, "/api/feedback-auth/session", { headers: { cookie } });
-  assert.deepEqual(await authenticated.json(), { authenticated: true });
-
-  const rotated = await request({ ...env, FEEDBACK_PASSWORD_HASH: await passwordHash("new-secret") }, "/api/feedback-auth/session", {
-    headers: { cookie },
-  });
-  assert.deepEqual(await rotated.json(), { authenticated: false });
-
-  const deleted = await request(env, "/api/feedback-auth/session", { method: "DELETE", headers: { cookie } });
-  assert.deepEqual(await deleted.json(), { authenticated: false });
-  assert.match(deleted.headers.get("set-cookie"), /HttpOnly/);
-  assert.match(deleted.headers.get("set-cookie"), /SameSite=Strict/);
-  const revoked = await request(env, "/api/feedback-auth/session", { headers: { cookie } });
-  assert.deepEqual(await revoked.json(), { authenticated: false });
+  assert.equal(response.status, 404);
 });
 
 test("feedback lifecycle is keyed by roadmap and program stable ids", async () => {
   const DB = createFeedbackDatabase();
   const document = seedRoadmap(DB);
-  const env = { DB, FEEDBACK_PASSWORD_HASH: await passwordHash("lead-secret") };
+  const env = { DB };
   const originalDocumentJson = DB.roadmaps[0].documentJson;
 
-  const rejected = await request(env, "/api/roadmaps/roadmap-1/feedback", {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-aio-feedback-action": "1" },
-    body: JSON.stringify({ programId: "program-1", text: "Fix eligibility wording" }),
-  });
-  assert.equal(rejected.status, 401);
-  assert.equal(DB.feedback.length, 0);
-
-  const cookie = await leadCookie(env);
   const missingProgram = await request(env, "/api/roadmaps/roadmap-1/feedback", {
     method: "POST",
-    headers: { "content-type": "application/json", cookie, "x-aio-feedback-action": "1" },
+    headers: { "content-type": "application/json", "x-aio-feedback-action": "1" },
     body: JSON.stringify({ programId: "missing", text: "Missing program" }),
   });
   assert.equal(missingProgram.status, 404);
@@ -332,7 +264,7 @@ test("feedback lifecycle is keyed by roadmap and program stable ids", async () =
 
   const createdResponse = await request(env, "/api/roadmaps/roadmap-1/feedback", {
     method: "POST",
-    headers: { "content-type": "application/json", cookie, "x-aio-feedback-action": "1" },
+    headers: { "content-type": "application/json", "x-aio-feedback-action": "1" },
     body: JSON.stringify({ programId: "program-1", text: "Fix eligibility wording" }),
   });
   const created = await createdResponse.json();
@@ -345,7 +277,7 @@ test("feedback lifecycle is keyed by roadmap and program stable ids", async () =
 
   const duplicate = await request(env, "/api/roadmaps/roadmap-1/feedback", {
     method: "POST",
-    headers: { "content-type": "application/json", cookie, "x-aio-feedback-action": "1" },
+    headers: { "content-type": "application/json", "x-aio-feedback-action": "1" },
     body: JSON.stringify({ programId: "program-1", text: "Duplicate thread" }),
   });
   assert.equal(duplicate.status, 409);
@@ -353,7 +285,7 @@ test("feedback lifecycle is keyed by roadmap and program stable ids", async () =
 
   const earlyResolve = await request(env, "/api/roadmaps/roadmap-1/feedback/program-1", {
     method: "PATCH",
-    headers: { "content-type": "application/json", cookie, "x-aio-feedback-action": "1" },
+    headers: { "content-type": "application/json", "x-aio-feedback-action": "1" },
     body: JSON.stringify({ action: "resolve" }),
   });
   assert.equal(earlyResolve.status, 409);
@@ -366,24 +298,16 @@ test("feedback lifecycle is keyed by roadmap and program stable ids", async () =
   assert.equal(completedResponse.status, 200);
   assert.equal((await completedResponse.json()).item.status, "completed");
 
-  const protectedResolve = await request(env, "/api/roadmaps/roadmap-1/feedback/program-1", {
-    method: "PATCH",
-    headers: { "content-type": "application/json", "x-aio-feedback-action": "1" },
-    body: JSON.stringify({ action: "resolve", text: "Looks good" }),
-  });
-  assert.equal(protectedResolve.status, 401);
-  assert.equal(DB.feedback[0].status, "completed");
-
   const emptyRework = await request(env, "/api/roadmaps/roadmap-1/feedback/program-1", {
     method: "PATCH",
-    headers: { "content-type": "application/json", cookie, "x-aio-feedback-action": "1" },
+    headers: { "content-type": "application/json", "x-aio-feedback-action": "1" },
     body: JSON.stringify({ action: "rework" }),
   });
   assert.equal(emptyRework.status, 400);
 
   const reworkResponse = await request(env, "/api/roadmaps/roadmap-1/feedback/program-1", {
     method: "PATCH",
-    headers: { "content-type": "application/json", cookie, "x-aio-feedback-action": "1" },
+    headers: { "content-type": "application/json", "x-aio-feedback-action": "1" },
     body: JSON.stringify({ action: "rework", text: "One more pass" }),
   });
   assert.equal((await reworkResponse.json()).item.status, "needs_changes");
@@ -397,14 +321,14 @@ test("feedback lifecycle is keyed by roadmap and program stable ids", async () =
 
   const resolvedResponse = await request(env, "/api/roadmaps/roadmap-1/feedback/program-1", {
     method: "PATCH",
-    headers: { "content-type": "application/json", cookie, "x-aio-feedback-action": "1" },
+    headers: { "content-type": "application/json", "x-aio-feedback-action": "1" },
     body: JSON.stringify({ action: "resolve", text: "Looks good" }),
   });
   assert.equal((await resolvedResponse.json()).item.status, "resolved");
 
   const repeatedResolve = await request(env, "/api/roadmaps/roadmap-1/feedback/program-1", {
     method: "PATCH",
-    headers: { "content-type": "application/json", cookie, "x-aio-feedback-action": "1" },
+    headers: { "content-type": "application/json", "x-aio-feedback-action": "1" },
     body: JSON.stringify({ action: "resolve" }),
   });
   assert.equal(repeatedResolve.status, 409);
@@ -424,9 +348,8 @@ test("feedback lifecycle is keyed by roadmap and program stable ids", async () =
 test("bulk resolution includes roadmap and category feedback, but only completed threads", async () => {
   const DB = createFeedbackDatabase();
   seedRoadmap(DB);
-  const env = { DB, FEEDBACK_PASSWORD_HASH: await passwordHash("lead-secret") };
-  const cookie = await leadCookie(env);
-  const headers = { "content-type": "application/json", cookie, "x-aio-feedback-action": "1" };
+  const env = { DB };
+  const headers = { "content-type": "application/json", "x-aio-feedback-action": "1" };
   for (const [programId, text] of [["program-1", "Program"], ["category:business", "Category"], ["roadmap", "Roadmap"]]) {
     const response = await request(env, "/api/roadmaps/roadmap-1/feedback", {
       method: "POST", headers, body: JSON.stringify({ programId, text }),
@@ -439,11 +362,6 @@ test("bulk resolution includes roadmap and category feedback, but only completed
     });
     assert.equal(response.status, 200);
   }
-
-  const rejected = await request(env, "/api/roadmaps/roadmap-1/feedback/resolve-completed", {
-    method: "POST", headers: { "content-type": "application/json", "x-aio-feedback-action": "1" }, body: "{}",
-  });
-  assert.equal(rejected.status, 401);
 
   const resolved = await request(env, "/api/roadmaps/roadmap-1/feedback/resolve-completed", {
     method: "POST", headers, body: "{}",
@@ -461,12 +379,11 @@ test("bulk resolution includes roadmap and category feedback, but only completed
 test("feedback for a removed program is not exposed to users", async () => {
   const DB = createFeedbackDatabase();
   seedRoadmap(DB);
-  const env = { DB, FEEDBACK_PASSWORD_HASH: await passwordHash("lead-secret") };
-  const cookie = await leadCookie(env);
+  const env = { DB };
 
   const created = await request(env, "/api/roadmaps/roadmap-1/feedback", {
     method: "POST",
-    headers: { "content-type": "application/json", cookie, "x-aio-feedback-action": "1" },
+    headers: { "content-type": "application/json", "x-aio-feedback-action": "1" },
     body: JSON.stringify({ programId: "program-1", text: "Remove this orphan" }),
   });
   assert.equal(created.status, 201);
@@ -482,12 +399,11 @@ test("feedback for a removed program is not exposed to users", async () => {
 test("saving a roadmap removes feedback for programs deleted from its document", async () => {
   const DB = createFeedbackDatabase();
   const document = seedRoadmap(DB);
-  const env = { DB, FEEDBACK_PASSWORD_HASH: await passwordHash("lead-secret") };
-  const cookie = await leadCookie(env);
+  const env = { DB };
 
   const created = await request(env, "/api/roadmaps/roadmap-1/feedback", {
     method: "POST",
-    headers: { "content-type": "application/json", cookie, "x-aio-feedback-action": "1" },
+    headers: { "content-type": "application/json", "x-aio-feedback-action": "1" },
     body: JSON.stringify({ programId: "program-1", text: "Remove on save" }),
   });
   assert.equal(created.status, 201);
@@ -510,7 +426,7 @@ test("saving a roadmap removes feedback for programs deleted from its document",
 test("deleting a roadmap with no feedback still reports success", async () => {
   const DB = createFeedbackDatabase();
   seedRoadmap(DB);
-  const env = { DB, FEEDBACK_PASSWORD_HASH: await passwordHash("lead-secret") };
+  const env = { DB };
 
   const deleted = await request(env, "/api/roadmaps/roadmap-1", { method: "DELETE" });
 
@@ -527,12 +443,11 @@ test("deleting a roadmap removes its feedback without changing other roadmap JSO
     tier: "premium",
     documentJson: JSON.stringify({ tier: "premium", clientName: "Other", programs: [{ id: "program-1" }] }),
   });
-  const env = { DB, FEEDBACK_PASSWORD_HASH: await passwordHash("lead-secret") };
-  const cookie = await leadCookie(env);
+  const env = { DB };
 
   const created = await request(env, "/api/roadmaps/roadmap-1/feedback", {
     method: "POST",
-    headers: { "content-type": "application/json", cookie, "x-aio-feedback-action": "1" },
+    headers: { "content-type": "application/json", "x-aio-feedback-action": "1" },
     body: JSON.stringify({ programId: "program-1", text: "Needs cleanup" }),
   });
   assert.equal(created.status, 201);

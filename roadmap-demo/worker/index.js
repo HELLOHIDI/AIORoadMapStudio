@@ -15,7 +15,6 @@ const CATALOG_PATH = "/api/catalog-programs";
 const CATALOG_IMPORT_PATH = "/api/catalog-programs/import";
 const CATALOG_OPTIONS_PATH = "/api/catalog-options";
 const ROADMAP_PATH = "/api/roadmaps";
-const FEEDBACK_AUTH_PATH = "/api/feedback-auth/session";
 const CATEGORIES = new Set(["consulting", "business", "voucher", "ip", "certification"]);
 const CATALOG_CATEGORIES = new Set(["business", "voucher", "ip", "certification"]);
 const ROADMAP_TIERS = new Set(["premium", "standard"]);
@@ -35,11 +34,6 @@ const OPTION_KINDS = new Set(["region"]);
 const MAX_BODY_BYTES = 500_000;
 const MAX_ROADMAP_PROGRAMS = 500;
 const FEEDBACK_ACTIONS = new Set(["complete", "resolve", "rework"]);
-const FEEDBACK_COOKIE = "feedback_session";
-const FEEDBACK_SESSION_SECONDS = 8 * 60 * 60;
-const FEEDBACK_RETRY_WINDOW_SECONDS = 15 * 60;
-const FEEDBACK_RETRY_LOCK_SECONDS = 15 * 60;
-const FEEDBACK_RETRY_LIMIT = 5;
 const BIZINFO_ORIGIN = "https://www.bizinfo.go.kr";
 const BIZINFO_DETAIL_PATH = "/sii/siia/selectSIIA200Detail.do";
 const BIZINFO_FETCH_TIMEOUT_MS = 8_000;
@@ -360,188 +354,6 @@ function feedbackPath(pathname) {
   const programId = decodeURIComponent(item[2]);
   if (!/^[A-Za-z0-9_-]{1,100}$/.test(roadmapId) || !/^(?:[A-Za-z0-9_-]{1,100}|category:[A-Za-z0-9_-]{1,80})$/.test(programId)) return null;
   return { roadmapId, programId };
-}
-
-function bytesToBase64Url(bytes) {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
-}
-
-function base64UrlToBytes(value) {
-  const padded = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
-  const binary = atob(padded);
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
-}
-
-function hex(bytes) {
-  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-async function sha256Hex(value) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return hex(new Uint8Array(digest));
-}
-
-function equalBytes(left, right) {
-  if (left.length !== right.length) return false;
-  let diff = 0;
-  for (let index = 0; index < left.length; index += 1) diff |= left[index] ^ right[index];
-  return diff === 0;
-}
-
-async function pbkdf2Hash(password, salt, iterations, byteLength) {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(password),
-    "PBKDF2",
-    false,
-    ["deriveBits"],
-  );
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt, iterations },
-    key,
-    byteLength * 8,
-  );
-  return new Uint8Array(bits);
-}
-
-function feedbackPasswordConfig(env) {
-  const value = cleanString(env.FEEDBACK_PASSWORD_HASH);
-  const parts = value.split("$");
-  if (parts.length !== 4 || parts[0] !== "pbkdf2") return null;
-  const iterations = Number.parseInt(parts[1], 10);
-  if (!Number.isSafeInteger(iterations) || iterations < 100_000 || iterations > 2_000_000) return null;
-  try {
-    const salt = base64UrlToBytes(parts[2]);
-    const expected = base64UrlToBytes(parts[3]);
-    if (!salt.length || expected.length < 16) return null;
-    return { raw: value, iterations, salt, expected };
-  } catch {
-    return null;
-  }
-}
-
-async function verifyFeedbackPassword(password, config) {
-  if (typeof password !== "string" || password.length > 1024) return false;
-  const actual = await pbkdf2Hash(password, config.salt, config.iterations, config.expected.length);
-  return equalBytes(actual, config.expected);
-}
-
-function cookieValue(request, name) {
-  const cookie = request.headers.get("cookie") ?? "";
-  for (const segment of cookie.split(";")) {
-    const [key, ...valueParts] = segment.trim().split("=");
-    if (key === name) return valueParts.join("=");
-  }
-  return "";
-}
-
-function feedbackCookieAttributes(request) {
-  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
-  return `Path=/; HttpOnly; SameSite=Strict${secure}`;
-}
-
-function clearFeedbackCookie(request, headers = {}) {
-  return {
-    ...headers,
-    "Set-Cookie": `${FEEDBACK_COOKIE}=; Max-Age=0; ${feedbackCookieAttributes(request)}`,
-  };
-}
-
-async function cleanupExpiredFeedbackSessions(db, now) {
-  await db.prepare("DELETE FROM feedback_auth_sessions WHERE expires_at <= ?").bind(now).run();
-}
-
-async function hasLeadSession(request, env) {
-  const config = feedbackPasswordConfig(env);
-  const token = cookieValue(request, FEEDBACK_COOKIE);
-  if (!config || !token) return false;
-  const tokenHash = await sha256Hex(token);
-  const now = Math.floor(Date.now() / 1000);
-  const row = await env.DB.prepare(`SELECT token_hash AS tokenHash FROM feedback_auth_sessions
-    WHERE token_hash = ? AND secret_version = ? AND expires_at > ?`)
-    .bind(tokenHash, await sha256Hex(config.raw), now)
-    .first();
-  return !!row;
-}
-
-async function requireLeadSession(request, env) {
-  return (await hasLeadSession(request, env)) ? null : apiError(401, "FEEDBACK_LEAD_SESSION_REQUIRED");
-}
-
-function retryKey(request) {
-  const ip = request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-  return `lead:${ip.slice(0, 100)}`;
-}
-
-async function isFeedbackAuthLocked(db, key, now) {
-  const row = await db.prepare("SELECT count, window_start AS windowStart, locked_until AS lockedUntil FROM feedback_auth_attempts WHERE attempt_key = ?")
-    .bind(key)
-    .first();
-  return !!row && Number(row.lockedUntil) > now;
-}
-
-async function recordFeedbackAuthFailure(db, key, now) {
-  const row = await db.prepare("SELECT count, window_start AS windowStart FROM feedback_auth_attempts WHERE attempt_key = ?").bind(key).first();
-  if (!row || now - Number(row.windowStart) > FEEDBACK_RETRY_WINDOW_SECONDS) {
-    await db.prepare("INSERT OR REPLACE INTO feedback_auth_attempts (attempt_key, count, window_start, locked_until) VALUES (?, ?, ?, ?)")
-      .bind(key, 1, now, 0)
-      .run();
-    return;
-  }
-  const count = Number(row.count) + 1;
-  const lockedUntil = count >= FEEDBACK_RETRY_LIMIT ? now + FEEDBACK_RETRY_LOCK_SECONDS : 0;
-  await db.prepare("UPDATE feedback_auth_attempts SET count = ?, locked_until = ? WHERE attempt_key = ?")
-    .bind(count, lockedUntil, key)
-    .run();
-}
-
-async function handleFeedbackAuth(request, env) {
-  if (request.method === "GET") return json({ authenticated: await hasLeadSession(request, env) });
-  if (request.method === "DELETE") {
-    const token = cookieValue(request, FEEDBACK_COOKIE);
-    if (token) {
-      await env.DB.prepare("DELETE FROM feedback_auth_sessions WHERE token_hash = ?")
-        .bind(await sha256Hex(token))
-        .run();
-    }
-    return json({ authenticated: false }, 200, clearFeedbackCookie(request));
-  }
-  if (request.method !== "POST") return apiError(405, "UNSUPPORTED_METHOD");
-  const actionHeaderError = requireFeedbackActionHeader(request);
-  if (actionHeaderError) return actionHeaderError;
-  if (!isJsonRequest(request)) return apiError(415, "JSON_CONTENT_TYPE_REQUIRED");
-
-  const config = feedbackPasswordConfig(env);
-  if (!config) return apiError(503, "FEEDBACK_AUTH_NOT_CONFIGURED");
-  const now = Math.floor(Date.now() / 1000);
-  await cleanupExpiredFeedbackSessions(env.DB, now);
-  const key = retryKey(request);
-  if (await isFeedbackAuthLocked(env.DB, key, now)) return apiError(429, "FEEDBACK_AUTH_LOCKED");
-
-  const body = await readBody(request);
-  if (body.error) return apiError(body.status ?? 400, body.error);
-  if (!hasOnlyFields(body.value, new Set(["password"]))) return apiError(400, "FEEDBACK_INPUT_INVALID");
-  const ok = await verifyFeedbackPassword(body.value?.password, config);
-  if (!ok) {
-    await recordFeedbackAuthFailure(env.DB, key, now);
-    return apiError(401, "FEEDBACK_AUTH_FAILED");
-  }
-
-  const tokenBytes = new Uint8Array(32);
-  crypto.getRandomValues(tokenBytes);
-  const token = bytesToBase64Url(tokenBytes);
-  const expiresAtSeconds = now + FEEDBACK_SESSION_SECONDS;
-  await env.DB.prepare("DELETE FROM feedback_auth_attempts WHERE attempt_key = ?").bind(key).run();
-  await env.DB.prepare("INSERT INTO feedback_auth_sessions (token_hash, secret_version, created_at, expires_at) VALUES (?, ?, ?, ?)")
-    .bind(await sha256Hex(token), await sha256Hex(config.raw), now, expiresAtSeconds)
-    .run();
-  return json(
-    { authenticated: true, expiresAt: new Date(expiresAtSeconds * 1000).toISOString() },
-    200,
-    { "Set-Cookie": `${FEEDBACK_COOKIE}=${token}; Max-Age=${FEEDBACK_SESSION_SECONDS}; ${feedbackCookieAttributes(request)}` },
-  );
 }
 
 function cleanTags(value, allowed, label, fields) {
@@ -1145,25 +957,27 @@ async function roadmapProgramExists(db, roadmapId, programId) {
 async function resolveCompletedFeedback(request, env, roadmapId) {
   const actionHeaderError = requireFeedbackActionHeader(request);
   if (actionHeaderError) return actionHeaderError;
-  const authError = await requireLeadSession(request, env);
-  if (authError) return authError;
   const roadmap = await env.DB.prepare("SELECT id FROM roadmaps WHERE id = ?").bind(roadmapId).first();
   if (!roadmap) return apiError(404, "ROADMAP_NOT_FOUND");
   const completed = await env.DB.prepare("SELECT id, updated_at AS updatedAt FROM roadmap_feedback WHERE roadmap_id = ? AND status = ?")
     .bind(roadmapId, "completed")
     .all();
   const rows = completed.results ?? [];
-  await env.DB.batch(rows.flatMap((row) => {
+  let resolved = 0;
+  for (const row of rows) {
     const previousTimestamp = Date.parse(row.updatedAt);
     const now = new Date(Math.max(Date.now(), Number.isFinite(previousTimestamp) ? previousTimestamp + 1 : 0)).toISOString();
-    return [
-      env.DB.prepare("UPDATE roadmap_feedback SET status = ?, updated_at = ? WHERE id = ?").bind("resolved", now, row.id),
-      env.DB.prepare(`INSERT INTO roadmap_feedback_events (id, feedback_id, type, role, text, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)`)
-        .bind(crypto.randomUUID(), row.id, "resolved", "lead", "", now),
-    ];
-  }));
-  return json({ resolved: rows.length });
+    const result = await env.DB.prepare("UPDATE roadmap_feedback SET status = ?, updated_at = ? WHERE id = ? AND status = 'completed'")
+      .bind("resolved", now, row.id)
+      .run();
+    if ((result.meta?.changes ?? result.changes ?? 0) === 0) continue;
+    await env.DB.prepare(`INSERT INTO roadmap_feedback_events (id, feedback_id, type, role, text, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)`)
+      .bind(crypto.randomUUID(), row.id, "resolved", "lead", "", now)
+      .run();
+    resolved += 1;
+  }
+  return json({ resolved });
 }
 
 function rowToFeedbackEvent(row) {
@@ -1239,8 +1053,6 @@ async function listFeedback(db, roadmapId) {
 async function createFeedback(request, env, roadmapId) {
   const actionHeaderError = requireFeedbackActionHeader(request);
   if (actionHeaderError) return actionHeaderError;
-  const authError = await requireLeadSession(request, env);
-  if (authError) return authError;
   if (!isJsonRequest(request)) return apiError(415, "JSON_CONTENT_TYPE_REQUIRED");
   const body = await readBody(request);
   if (body.error) return apiError(body.status ?? 400, body.error);
@@ -1252,19 +1064,16 @@ async function createFeedback(request, env, roadmapId) {
   if (exists.error) return exists.error;
 
   const now = new Date().toISOString();
-  const existing = await env.DB.prepare("SELECT id FROM roadmap_feedback WHERE roadmap_id = ? AND program_id = ?")
-    .bind(roadmapId, programId)
-    .first();
-  if (existing) return apiError(409, "FEEDBACK_ALREADY_EXISTS");
   const feedbackId = crypto.randomUUID();
-  await env.DB.batch([
-    env.DB.prepare(`INSERT INTO roadmap_feedback (id, roadmap_id, program_id, status, created_at, updated_at)
+  const inserted = await env.DB.prepare(`INSERT OR IGNORE INTO roadmap_feedback (id, roadmap_id, program_id, status, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?)`)
-      .bind(feedbackId, roadmapId, programId, "needs_changes", now, now),
-    env.DB.prepare(`INSERT INTO roadmap_feedback_events (id, feedback_id, type, role, text, created_at)
+    .bind(feedbackId, roadmapId, programId, "needs_changes", now, now)
+    .run();
+  if ((inserted.meta?.changes ?? inserted.changes ?? 0) === 0) return apiError(409, "FEEDBACK_ALREADY_EXISTS");
+  await env.DB.prepare(`INSERT INTO roadmap_feedback_events (id, feedback_id, type, role, text, created_at)
     VALUES (?, ?, ?, ?, ?, ?)`)
-      .bind(crypto.randomUUID(), feedbackId, "comment", "lead", text, now),
-  ]);
+    .bind(crypto.randomUUID(), feedbackId, "comment", "lead", text, now)
+    .run();
   return json({ item: await feedbackItem(env.DB, roadmapId, programId) }, 201);
 }
 
@@ -1281,10 +1090,6 @@ async function updateFeedback(request, env, roadmapId, programId) {
     || (body.value?.text !== undefined && !text)
     || (action === "rework" && !text)) {
     return apiError(400, "FEEDBACK_INPUT_INVALID");
-  }
-  if (action !== "complete") {
-    const authError = await requireLeadSession(request, env);
-    if (authError) return authError;
   }
   const exists = await roadmapProgramExists(env.DB, roadmapId, programId);
   if (exists.error) return exists.error;
@@ -1317,10 +1122,9 @@ async function handleApi(request, env, pathname) {
   const isCatalogImport = pathname === CATALOG_IMPORT_PATH;
   const isCatalog = !isCatalogImport && (pathname === CATALOG_PATH || pathname.startsWith(`${CATALOG_PATH}/`));
   const isCatalogOptions = pathname === CATALOG_OPTIONS_PATH;
-  const isFeedbackAuth = pathname === FEEDBACK_AUTH_PATH;
   const isRoadmap = pathname === ROADMAP_PATH || pathname.startsWith(`${ROADMAP_PATH}/`);
   const feedback = isRoadmap ? feedbackPath(pathname) : null;
-  if (!isCatalog && !isCatalogImport && !isCatalogOptions && !isFeedbackAuth && !isRoadmap) {
+  if (!isCatalog && !isCatalogImport && !isCatalogOptions && !isRoadmap) {
     return apiError(404, "API 경로를 찾을 수 없습니다.");
   }
   if (isCatalogImport) {
@@ -1339,15 +1143,6 @@ async function handleApi(request, env, pathname) {
   if ((["POST", "PUT"].includes(request.method) || (request.method === "PATCH" && (feedback || isCatalog)))
     && !request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
     return apiError(415, "JSON 형식으로 요청해 주세요.");
-  }
-
-  if (isFeedbackAuth) {
-    try {
-      return await handleFeedbackAuth(request, env);
-    } catch (error) {
-      console.error("api error", error);
-      return apiError(500, "FEEDBACK_AUTH_ERROR");
-    }
   }
 
   if (feedback) {

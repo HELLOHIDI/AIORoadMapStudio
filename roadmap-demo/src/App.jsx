@@ -110,9 +110,6 @@ function RoadmapEvent({
   thread,
   composerOpen,
   composerDraft,
-  leadPassword,
-  leadAuthenticated,
-  onLogout,
   feedbackMutation,
   roadmapSaved,
   onDragStart,
@@ -122,7 +119,6 @@ function RoadmapEvent({
   onShift,
   onOpen,
   onDraftChange,
-  onPasswordChange,
   onComposerSubmit,
   onSaveRoadmap,
 }) {
@@ -197,16 +193,6 @@ function RoadmapEvent({
                 maxLength="2000"
                 required
               />
-              {!leadAuthenticated ? (
-                <input
-                  type="password"
-                  value={leadPassword}
-                  onChange={(event) => onPasswordChange(event.target.value)}
-                  placeholder="팀장 비밀번호"
-                  autoComplete="current-password"
-                  required
-                />
-              ) : <div className="feedback-session-status">팀장 인증됨 <button type="button" onClick={onLogout}>로그아웃</button></div>}
               {feedbackMutation.error ? <p className="feedback-error" role="alert">{feedbackMutation.error}</p> : null}
               <button type="submit" className="button-primary" disabled={feedbackMutation.status === "saving"}>
                 {feedbackMutation.status === "saving" ? "등록 중" : "등록"}
@@ -224,14 +210,9 @@ function FeedbackPanel({
   thread,
   draft,
   roadmapSaved,
-  leadAuthenticated,
-  leadPassword,
   reworkDraft,
   mutation,
   onClose,
-  onPasswordChange,
-  onAuthenticate,
-  onLogout,
   onReworkDraftChange,
   onAction,
   onDraftChange,
@@ -256,7 +237,6 @@ function FeedbackPanel({
             <button type="button" className="button-primary" onClick={onSaveRoadmap}>로드맵 저장</button>
           </> : <>
             <textarea autoFocus value={draft} onChange={(event) => onDraftChange(event.target.value)} placeholder="수정이 필요한 내용을 입력하세요" maxLength="2000" required />
-            {!leadAuthenticated ? <input type="password" value={leadPassword} onChange={(event) => onPasswordChange(event.target.value)} placeholder="팀장 비밀번호" autoComplete="current-password" required /> : null}
             <button type="submit" className="button-primary" disabled={mutation.status === "saving"}>{mutation.status === "saving" ? "등록 중" : "등록"}</button>
           </>}
         </form>
@@ -267,7 +247,7 @@ function FeedbackPanel({
         {thread.events.map((event) => (
           <li key={event.id} className={`feedback-timeline__item feedback-timeline__item--${event.type}`}>
             <div>
-              <strong>{event.role === "lead" || event.role === "team_lead" ? "팀장" : "담당자"}</strong>
+              <strong>{event.role === "lead" || event.role === "team_lead" ? "피드백 작성자" : "담당자"}</strong>
               <time dateTime={event.createdAt}>{formatFeedbackTime(event.createdAt)}</time>
             </div>
             {event.text ? <p>{event.text}</p> : (
@@ -279,8 +259,6 @@ function FeedbackPanel({
 
       {mutation.error ? <p className="feedback-error" role="alert">{mutation.error}</p> : null}
 
-      {leadAuthenticated ? <div className="feedback-session-status">팀장 인증됨 <button type="button" onClick={onLogout}>로그아웃</button></div> : null}
-
       {thread.status === "needs_changes" ? (
         <div className="feedback-panel__actions">
           <button type="button" className="button-primary" disabled={mutation.status === "saving"} onClick={() => onAction("complete")}>
@@ -289,24 +267,7 @@ function FeedbackPanel({
         </div>
       ) : null}
 
-      {thread.status === "completed" && !leadAuthenticated ? (
-        <form className="feedback-auth" onSubmit={onAuthenticate}>
-          <label>
-            <span>팀장 확인이 필요합니다</span>
-            <input
-              type="password"
-              value={leadPassword}
-              onChange={(event) => onPasswordChange(event.target.value)}
-              placeholder="팀장 비밀번호"
-              autoComplete="current-password"
-              required
-            />
-          </label>
-          <button type="submit" className="button-primary" disabled={mutation.status === "saving"}>팀장 인증</button>
-        </form>
-      ) : null}
-
-      {thread.status === "completed" && leadAuthenticated ? (
+      {thread.status === "completed" ? (
         <div className="feedback-review">
           <label>
             <span>재수정이 필요하면 이유를 입력하세요</span>
@@ -841,8 +802,6 @@ export function App() {
   const [selectedFeedbackProgramId, setSelectedFeedbackProgramId] = useState(null);
   const [feedbackDraft, setFeedbackDraft] = useState("");
   const [reworkDraft, setReworkDraft] = useState("");
-  const [leadPassword, setLeadPassword] = useState("");
-  const [feedbackSession, setFeedbackSession] = useState({ status: "idle", authenticated: false });
   const [feedbackMutation, setFeedbackMutation] = useState({ status: "idle", error: "" });
   const libraryHeading = useRef(null);
   const roadmapHeading = useRef(null);
@@ -987,27 +946,6 @@ export function App() {
   }, [catalog.status, catalog.offset]);
 
   useEffect(() => {
-    if (screen !== "editor" || mode !== "roadmap") return undefined;
-    const controller = new AbortController();
-    setFeedbackSession((current) => ({ ...current, status: "loading" }));
-    fetch("/api/feedback-auth/session", {
-      signal: controller.signal,
-      credentials: "same-origin",
-      headers: { accept: "application/json" },
-    })
-      .then(async (response) => {
-        const data = await readApiJson(response);
-        if (!response.ok) throw new Error(data.error || "팀장 인증 상태를 확인하지 못했습니다.");
-        return data;
-      })
-      .then((data) => setFeedbackSession({ status: "ready", authenticated: Boolean(data.authenticated) }))
-      .catch((error) => {
-        if (error.name !== "AbortError") setFeedbackSession({ status: "error", authenticated: false });
-      });
-    return () => controller.abort();
-  }, [screen, mode]);
-
-  useEffect(() => {
     if (screen !== "editor" || mode !== "roadmap" || !roadmapId) {
       setFeedback({ status: "idle", items: [], error: "" });
       return undefined;
@@ -1048,7 +986,6 @@ export function App() {
     setSelectedFeedbackProgramId(null);
     setFeedbackDraft("");
     setReworkDraft("");
-    setLeadPassword("");
     setFeedbackMutation({ status: "idle", error: "" });
   };
 
@@ -1410,55 +1347,6 @@ export function App() {
     requestAnimationFrame(() => globalThis.document.querySelector(`[data-feedback-id="${programId}"]`)?.focus());
   };
 
-  const authenticateFeedbackLead = async (event) => {
-    event?.preventDefault();
-    if (!leadPassword) {
-      setFeedbackMutation({ status: "error", error: "팀장 비밀번호를 입력해 주세요." });
-      return false;
-    }
-    setFeedbackMutation({ status: "saving", error: "" });
-    try {
-      const response = await fetch("/api/feedback-auth/session", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json",
-          "x-aio-feedback-action": "1",
-        },
-        body: JSON.stringify({ password: leadPassword }),
-      });
-      const data = await readApiJson(response);
-      if (!response.ok) throw new Error(data.error || "팀장 인증에 실패했습니다.");
-      setFeedbackSession({ status: "ready", authenticated: true });
-      setLeadPassword("");
-      setFeedbackMutation({ status: "idle", error: "" });
-      return true;
-    } catch (error) {
-      setFeedbackSession({ status: "ready", authenticated: false });
-      setFeedbackMutation({ status: "error", error: error.message || "팀장 인증에 실패했습니다." });
-      return false;
-    }
-  };
-
-  const logoutFeedbackLead = async () => {
-    setFeedbackMutation({ status: "saving", error: "" });
-    try {
-      const response = await fetch("/api/feedback-auth/session", {
-        method: "DELETE",
-        credentials: "same-origin",
-        headers: { accept: "application/json", "x-aio-feedback-action": "1" },
-      });
-      const data = await readApiJson(response);
-      if (!response.ok) throw new Error(data.error || "팀장 인증을 해제하지 못했습니다.");
-      setFeedbackSession({ status: "ready", authenticated: false });
-      setLeadPassword("");
-      setFeedbackMutation({ status: "idle", error: "" });
-    } catch (error) {
-      setFeedbackMutation({ status: "error", error: error.message || "팀장 인증을 해제하지 못했습니다." });
-    }
-  };
-
   const submitInitialFeedback = async (event, programId) => {
     event.preventDefault();
     if (!roadmapId) {
@@ -1466,9 +1354,6 @@ export function App() {
       return;
     }
     if (!feedbackDraft.trim()) return;
-    let authenticated = feedbackSession.authenticated;
-    if (!authenticated) authenticated = await authenticateFeedbackLead();
-    if (!authenticated) return;
 
     setFeedbackMutation({ status: "saving", error: "" });
     try {
@@ -1483,7 +1368,6 @@ export function App() {
         body: JSON.stringify({ programId, text: feedbackDraft.trim() }),
       });
       const data = await readApiJson(response);
-      if (response.status === 401) setFeedbackSession({ status: "ready", authenticated: false });
       if (!response.ok) throw new Error(data.error || "피드백을 등록하지 못했습니다.");
       setFeedbackDraft("");
       setFeedbackMutation({ status: "idle", error: "" });
@@ -1509,7 +1393,6 @@ export function App() {
         body: JSON.stringify({ action, ...(action === "rework" ? { text: reworkDraft.trim() } : {}) }),
       });
       const data = await readApiJson(response);
-      if (response.status === 401) setFeedbackSession({ status: "ready", authenticated: false });
       if (!response.ok) throw new Error(data.error || "피드백 상태를 변경하지 못했습니다.");
       setReworkDraft("");
       setFeedbackMutation({ status: "idle", error: "" });
@@ -1520,7 +1403,7 @@ export function App() {
   };
 
   const resolveCompletedFeedback = async () => {
-    if (!roadmapId || !feedbackSession.authenticated) return;
+    if (!roadmapId) return;
     setFeedbackMutation({ status: "saving", error: "" });
     try {
       const response = await fetch(`/api/roadmaps/${encodeURIComponent(roadmapId)}/feedback/resolve-completed`, {
@@ -1530,7 +1413,6 @@ export function App() {
         body: "{}",
       });
       const data = await readApiJson(response);
-      if (response.status === 401) setFeedbackSession({ status: "ready", authenticated: false });
       if (!response.ok) throw new Error(data.error || "일괄 해결 확인에 실패했습니다.");
       setFeedbackMutation({ status: "idle", error: "" });
       setFeedbackRefresh((current) => current + 1);
@@ -1899,9 +1781,6 @@ export function App() {
                                 thread={feedbackByProgram[item.id]}
                                 composerOpen={item.id === selectedFeedbackProgramId && !feedbackByProgram[item.id]}
                                 composerDraft={feedbackDraft}
-                                leadPassword={leadPassword}
-                                leadAuthenticated={feedbackSession.authenticated}
-                                onLogout={logoutFeedbackLead}
                                 feedbackMutation={feedbackMutation}
                                 roadmapSaved={Boolean(roadmapId)}
                                 onDragStart={startDrag}
@@ -1911,7 +1790,6 @@ export function App() {
                                 onShift={shiftProgram}
                                 onOpen={openProgramFeedback}
                                 onDraftChange={setFeedbackDraft}
-                                onPasswordChange={setLeadPassword}
                                 onComposerSubmit={submitInitialFeedback}
                                 onSaveRoadmap={saveRoadmap}
                               />
@@ -1946,7 +1824,7 @@ export function App() {
             <div className="authoring-panel__heading">
               <h2 id="roadmap-editor-heading" ref={roadmapHeading} tabIndex="-1">로드맵 편집</h2>
               <p className="tier-badge tier-badge--editor no-print" aria-label="로드맵 유형">{tierLabel[documentTier]}</p>
-              {feedbackSession.authenticated && feedback.items.some((item) => item.status === "completed") ? (
+              {feedback.items.some((item) => item.status === "completed") ? (
                 <button type="button" className="button-primary feedback-bulk-resolve no-print" disabled={feedbackMutation.status === "saving"} onClick={resolveCompletedFeedback}>
                   {feedbackMutation.status === "saving" ? "처리 중" : "수정 완료 피드백 일괄 해결 확인"}
                 </button>
@@ -2040,14 +1918,9 @@ export function App() {
             thread={selectedFeedbackThread}
             draft={feedbackDraft}
             roadmapSaved={Boolean(roadmapId)}
-            leadAuthenticated={feedbackSession.authenticated}
-            leadPassword={leadPassword}
             reworkDraft={reworkDraft}
             mutation={feedbackMutation}
             onClose={closeProgramFeedback}
-            onPasswordChange={setLeadPassword}
-            onAuthenticate={authenticateFeedbackLead}
-            onLogout={logoutFeedbackLead}
             onReworkDraftChange={setReworkDraft}
             onAction={performFeedbackAction}
             onDraftChange={setFeedbackDraft}
