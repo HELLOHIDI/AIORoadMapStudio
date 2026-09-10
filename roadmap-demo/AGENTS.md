@@ -47,12 +47,12 @@ Build app UI in `src/`. Preserve the Sites packaging and static-fallback contrac
 - Deliverable: true A4 landscape, single-page PDF; the authoring UI must never appear in print.
 - Fixed title: `올인원 컨설팅 서비스 연간 로드맵_{클라이언트명}`, NanumSquare AC ExtraBold 16pt.
 - Header: supplied ANP Consulting logo on the left and `Road to funds` on the right in NanumSquare AC Regular 7pt; keep both 3-4pt above the table.
-- Category order and row ceilings: 컨설팅 2, 사업화 4, 바우처 2, IP 2, 기업인증 1.
+- Category order is fixed. Premium starts at 컨설팅 2, 사업화 4, 바우처 2, IP 2, 기업인증 1, keeps exactly 11 lanes, and may transfer an empty lane so each category remains between 1 and 4; Standard stays fixed at 컨설팅 2, 사업화 4, 바우처 2, IP 2.
 - Month/category headings: NanumSquare AC Bold 7pt. Program labels: `[구분] 사업명`, NanumSquare AC Bold 6pt.
 - Amounts: Pretendard Regular 4pt; `N억원` at or above 1억원 and `N백만 원` below 1억원; CSS position `top: -8pt`.
 - All PDF-canvas text uses `letter-spacing: 0`.
 - Bars are 0.21cm high. Label text starts 0.5pt to the right of the bar and keeps a measured 2pt label-to-bar gap.
-- Each category height is split into its fixed number of equal lanes; every event is bottom-aligned in its lane.
+- Each category height follows its resolved lane count with a fixed 10.287 mm height per lane; every event is bottom-aligned in its lane.
 - Start/end months are used only for inclusive bar geometry and are not printed as text.
 - Category colors are fixed: `#BFBFBF`, `#5B9BD5`, `#FFC000`, `#F86828`, `#70AD47`.
 - Do not draw internal horizontal or vertical boundaries across the 1-12 month roadmap body.
@@ -94,7 +94,7 @@ Build app UI in `src/`. Preserve the Sites packaging and static-fallback contrac
 - Rank recommendation candidates by total match score descending, then use main-package status, exact-match count, amount, ID, and title as deterministic tie-breakers.
 - Recognize an administrative locality as matching a program tagged with its parent province, below an exact locality match and above a nationwide match.
 - Return up to 35 authoring-only recommendation candidates: at least 20 business and 10 voucher candidates when enough eligible records exist, no more than 5 IP candidates, and no certification candidates. Fill unused IP capacity with additional business or voucher candidates.
-- Preserve the fixed A4 roadmap row ceilings. Auto-place only the highest-ranked candidates that fit those rows and expose the remaining recommendations, scores, and scoring reasons in the authoring UI for manual replacement.
+- Preserve the resolved per-roadmap lane capacity. Auto-place only the highest-ranked candidates that fit those lanes and expose the remaining recommendations, scores, and scoring reasons in the authoring UI for manual replacement.
 
 ## Government support-program ingestion contract
 

@@ -21,7 +21,7 @@ const ROADMAP_TIERS = new Set(["premium", "standard"]);
 const STANDARD_ROADMAP_CATEGORIES = new Set(["consulting", "business", "voucher", "ip"]);
 const FIELDS = new Set(["category", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "industries", "regions", "mainPackage"]);
 const VERIFICATION_FIELDS = new Set(["verified"]);
-const ROADMAP_FIELDS = new Set(["tier", "clientName", "programs", "clientProfile"]);
+const ROADMAP_FIELDS = new Set(["tier", "clientName", "programs", "clientProfile", "laneCounts"]);
 const ROADMAP_CLIENT_PROFILE_FIELDS = new Set(["industries", "regions", "isWomenOwned", "tenure"]);
 const ROADMAP_PROGRAM_FIELDS = new Set(["id", "category", "displayCategory", "title", "link", "amountKrw", "startMonth", "endMonth", "target", "details", "sequence", "laneIndex"]);
 const INDUSTRIES = new Set(INDUSTRY_OPTIONS);
@@ -33,6 +33,8 @@ const INVALID_REGIONS = new Set(LEGACY_INVALID_REGION_OPTIONS);
 const OPTION_KINDS = new Set(["region"]);
 const MAX_BODY_BYTES = 500_000;
 const MAX_ROADMAP_PROGRAMS = 500;
+const PREMIUM_LANE_COUNTS = Object.freeze({ consulting: 2, business: 4, voucher: 2, ip: 2, certification: 1 });
+const PREMIUM_LANE_KEYS = Object.keys(PREMIUM_LANE_COUNTS);
 const FEEDBACK_ACTIONS = new Set(["complete", "resolve", "rework"]);
 const BIZINFO_ORIGIN = "https://www.bizinfo.go.kr";
 const BIZINFO_DETAIL_PATH = "/sii/siia/selectSIIA200Detail.do";
@@ -507,7 +509,24 @@ function validateRoadmapClientProfile(input, options) {
 
 // Saved roadmaps remain intentionally editable after generation, so the Worker validates the document contract
 // rather than recomputing draft eligibility against a potentially changed catalog.
-export function validateRoadmapDocumentForStorage(input, options = { industries: INDUSTRIES, regions: REGIONS }) {
+function validateRoadmapLaneCounts(input, { allowLegacyPremium = false } = {}) {
+  const present = Object.hasOwn(input, "laneCounts");
+  if (input.tier === "standard") return present ? { error: "ROADMAP_LANE_COUNTS_FORBIDDEN" } : {};
+  if (!present) return allowLegacyPremium ? {} : { error: "ROADMAP_LANE_COUNTS_REQUIRED" };
+  const counts = input.laneCounts;
+  if (!counts || typeof counts !== "object" || Array.isArray(counts)) return { error: "ROADMAP_LANE_COUNTS_INVALID" };
+  const keys = Object.keys(counts);
+  if (keys.length !== PREMIUM_LANE_KEYS.length || PREMIUM_LANE_KEYS.some((key) => !Object.hasOwn(counts, key))) {
+    return { error: "ROADMAP_LANE_COUNTS_INVALID" };
+  }
+  if (PREMIUM_LANE_KEYS.some((key) => !Number.isSafeInteger(counts[key]) || counts[key] < 1 || counts[key] > 4)
+    || PREMIUM_LANE_KEYS.reduce((total, key) => total + counts[key], 0) !== 11) {
+    return { error: "ROADMAP_LANE_COUNTS_INVALID" };
+  }
+  return { value: Object.fromEntries(PREMIUM_LANE_KEYS.map((key) => [key, counts[key]])) };
+}
+
+export function validateRoadmapDocumentForStorage(input, options = { industries: INDUSTRIES, regions: REGIONS }, validation = {}) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { error: "로드맵을 JSON 객체로 입력해 주세요." };
   }
@@ -519,6 +538,9 @@ export function validateRoadmapDocumentForStorage(input, options = { industries:
   if (!Array.isArray(input.programs) || input.programs.length > MAX_ROADMAP_PROGRAMS) {
     return { error: `로드맵 사업은 ${MAX_ROADMAP_PROGRAMS}개 이하의 배열이어야 합니다.` };
   }
+
+  const laneCounts = validateRoadmapLaneCounts(input, validation);
+  if (laneCounts.error) return laneCounts;
 
   const clientProfile = validateRoadmapClientProfile(input.clientProfile, options);
   if (clientProfile.error) return clientProfile;
@@ -569,7 +591,12 @@ export function validateRoadmapDocumentForStorage(input, options = { industries:
     }
   }
 
-  return { value: clientProfile.value ? { ...input, clientProfile: clientProfile.value } : input };
+  const value = {
+    ...input,
+    ...(laneCounts.value ? { laneCounts: laneCounts.value } : {}),
+    ...(clientProfile.value ? { clientProfile: clientProfile.value } : {}),
+  };
+  return { value };
 }
 
 function rowToProgram(row) {
@@ -845,14 +872,16 @@ function documentFromStoredRow(row) {
   if (!ROADMAP_TIERS.has(row.tier)) return { error: "ROADMAP_TIER_DATA_INTEGRITY" };
   const tier = row.tier;
   const document = JSON.parse(row.documentJson);
-  if (document?.tier === undefined) return { document: { ...document, tier } };
-  if (ROADMAP_TIERS.has(document.tier) && document.tier !== tier) {
+  const hydrated = document?.tier === undefined ? { ...document, tier } : document;
+  if (ROADMAP_TIERS.has(hydrated.tier) && hydrated.tier !== tier) {
     return { error: "ROADMAP_TIER_DATA_INTEGRITY" };
   }
-  if (!ROADMAP_TIERS.has(document.tier)) {
+  if (!ROADMAP_TIERS.has(hydrated.tier)) {
     return { error: "ROADMAP_TIER_DATA_INTEGRITY" };
   }
-  return { document };
+  const laneCounts = validateRoadmapLaneCounts(hydrated, { allowLegacyPremium: true });
+  if (laneCounts.error) return { error: "ROADMAP_LANE_COUNTS_DATA_INTEGRITY" };
+  return { document: laneCounts.value ? { ...hydrated, laneCounts: laneCounts.value } : hydrated };
 }
 
 async function getRoadmap(db, id) {

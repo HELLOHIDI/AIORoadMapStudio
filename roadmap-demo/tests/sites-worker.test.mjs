@@ -5,6 +5,7 @@ import { BUSINESS_SUBCATEGORY_OPTIONS, INDUSTRY_OPTIONS, REGION_OPTIONS, inferBu
 import worker, { validateCatalogProgram } from "../worker/index.js";
 
 const { extractBizinfoCatalogDraft, fetchBizinfoHtml, validateBizinfoDetailUrl } = worker;
+const premiumLaneCounts = { consulting: 2, business: 4, voucher: 2, ip: 2, certification: 1 };
 
 const bizinfoUrl = "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000117819";
 const copiedBizinfoUrl = "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?hashCode=&rowsSel=&rows=15&cpage=&cat=&schPblancDiv=&schJrsdCodeTy=&schWntyAt=&schAreaDetailCodes=&schEndAt=N&orderGb=&sort=&preKeywords=&condition=&condition1=&keyword=&pblancId=PBLN_000000000126288";
@@ -933,6 +934,7 @@ test("persists public roadmap drafts without applying PDF validity rules", async
     body: JSON.stringify({
       ...draft,
       tier: "premium",
+      laneCounts: premiumLaneCounts,
       programs: [{ ...draft.programs[0], id: "cert-1", category: "certification", displayCategory: undefined }],
     }),
   });
@@ -985,7 +987,7 @@ test("persists public roadmap drafts without applying PDF validity rules", async
   const tierChange = await request(`/api/roadmaps/${created.item.id}`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ...updatedDraft, tier: "premium" }),
+    body: JSON.stringify({ ...updatedDraft, tier: "premium", laneCounts: premiumLaneCounts }),
   });
   assert.equal(tierChange.status, 409);
   assert.deepEqual(JSON.parse(DB.rows[0].documentJson), updatedDraft);
@@ -1012,6 +1014,7 @@ test("persists optional roadmap client profiles through create, load, and update
   const request = (path, options) => worker.fetch(new Request(`https://example.test${path}`, options), env);
   const draft = {
     tier: "premium",
+    laneCounts: premiumLaneCounts,
     clientName: "Profiled client",
     clientProfile: {
       industries: [INDUSTRY_OPTIONS[0], INDUSTRY_OPTIONS[0]],
@@ -1103,11 +1106,11 @@ test("hydrates legacy roadmap JSON tier from the canonical row and rejects misma
   const resaveResponse = await request("/api/roadmaps/legacy-1", {
     method: "PUT",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(legacy.item.document),
+    body: JSON.stringify({ ...legacy.item.document, laneCounts: premiumLaneCounts }),
   });
   assert.equal(resaveResponse.status, 200);
   assert.equal(DB.rows[0].tier, "premium");
-  assert.deepEqual(JSON.parse(DB.rows[0].documentJson), { ...legacyDocument, tier: "premium" });
+  assert.deepEqual(JSON.parse(DB.rows[0].documentJson), { ...legacyDocument, tier: "premium", laneCounts: premiumLaneCounts });
 
   DB.rows.push({
     id: "mismatch-1",
@@ -1134,6 +1137,32 @@ test("hydrates legacy roadmap JSON tier from the canonical row and rejects misma
   const invalidRowTierResponse = await request("/api/roadmaps/invalid-row-tier");
   assert.equal(invalidRowTierResponse.status, 500);
   assert.equal((await invalidRowTierResponse.json()).error, "ROADMAP_TIER_DATA_INTEGRITY");
+});
+
+test("requires valid Premium lane counts, rejects Standard counts, and preserves legacy GET absence", async () => {
+  const DB = createRoadmapDatabase();
+  const env = { DB };
+  const request = (path, options) => worker.fetch(new Request(`https://example.test${path}`, options), env);
+  const premium = { tier: "premium", clientName: "Premium", laneCounts: premiumLaneCounts, programs: [] };
+
+  assert.equal((await request("/api/roadmaps", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...premium, laneCounts: undefined }) })).status, 400);
+  assert.equal((await request("/api/roadmaps", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...premium, laneCounts: { ...premiumLaneCounts, ip: 1 } }) })).status, 400);
+  assert.equal((await request("/api/roadmaps", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tier: "standard", clientName: "Standard", laneCounts: premiumLaneCounts, programs: [] }) })).status, 400);
+
+  const created = await request("/api/roadmaps", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(premium) });
+  assert.equal(created.status, 201);
+  const item = (await created.json()).item;
+  assert.deepEqual(item.document.laneCounts, premiumLaneCounts);
+
+  const timestamp = new Date().toISOString();
+  DB.rows.push({ id: "legacy-counts", tier: "premium", clientName: "Legacy", documentJson: JSON.stringify({ tier: "premium", clientName: "Legacy", programs: [] }), createdAt: timestamp, updatedAt: timestamp });
+  const legacy = await (await request("/api/roadmaps/legacy-counts")).json();
+  assert.equal(Object.hasOwn(legacy.item.document, "laneCounts"), false);
+
+  DB.rows.push({ id: "bad-counts", tier: "premium", clientName: "Bad", documentJson: JSON.stringify({ ...premium, laneCounts: { ...premiumLaneCounts, certification: 5 } }), createdAt: timestamp, updatedAt: timestamp });
+  const corrupt = await request("/api/roadmaps/bad-counts");
+  assert.equal(corrupt.status, 500);
+  assert.equal((await corrupt.json()).error, "ROADMAP_LANE_COUNTS_DATA_INTEGRITY");
 });
 
 test("emits the files required by Sites packaging", async () => {
