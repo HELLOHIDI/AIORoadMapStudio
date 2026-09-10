@@ -1,6 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { selectRoadmapPrograms } from "../src/roadmap-auto-selection.js";
+import { selectRoadmapPrograms as selectPrograms } from "../src/roadmap-auto-selection.js";
+import { PREMIUM_DEFAULT_LANE_COUNTS, STANDARD_DEFAULT_LANE_COUNTS } from "../src/roadmap-policy.js";
+
+const selectRoadmapPrograms = (options = {}) => selectPrograms({
+  ...options,
+  laneCounts: options.laneCounts ?? (options.tier === "standard" ? STANDARD_DEFAULT_LANE_COUNTS : PREMIUM_DEFAULT_LANE_COUNTS),
+});
+
+test("requires explicit lane counts for draft selection", () => {
+  assert.throws(() => selectPrograms(), (error) => error instanceof TypeError
+    && error.name === "RoadmapLaneCountsTypeError"
+    && /Invalid laneCounts/.test(error.message));
+});
+
+test("rejects malformed lane counts at the selector boundary", () => {
+  for (const options of [
+    { tier: "premium", laneCounts: { consulting: 2, business: 4, voucher: 2, ip: 1, certification: 1 } },
+    { tier: "premium", laneCounts: { consulting: 2, business: 4, voucher: 2, ip: 1.5, certification: 1.5 } },
+    { tier: "standard", laneCounts: { consulting: 2, business: 4, voucher: 2, ip: 1 } },
+    { tier: "standard", laneCounts: { consulting: 2, business: 4, voucher: 2, ip: 2, certification: 1 } },
+  ]) {
+    assert.throws(() => selectPrograms(options), (error) => error instanceof TypeError
+      && error.name === "RoadmapLaneCountsTypeError");
+  }
+});
 
 const program = (id, extra = {}) => ({
   id,
@@ -14,6 +38,17 @@ const program = (id, extra = {}) => ({
   regions: ["Seoul"],
   mainPackage: false,
   ...extra,
+});
+
+test("uses representative transferred Premium counts for selector capacity", () => {
+  const result = selectRoadmapPrograms({
+    laneCounts: { consulting: 2, business: 4, voucher: 2, ip: 1, certification: 2 },
+    client: { industries: ["AI"], regions: ["Seoul"], tenureYears: 1 },
+    programs: [program("ip-1", { category: "ip" }), program("ip-2", { category: "ip" })],
+  });
+
+  assert.equal(result.categories.find(({ key }) => key === "ip").placedCount, 1);
+  assert.equal(result.programs.filter(({ category }) => category === "ip").length, 1);
 });
 
 test("scores exact tag intersections above mismatches without discarding lower-score candidates", () => {

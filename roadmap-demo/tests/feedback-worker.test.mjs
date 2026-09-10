@@ -410,6 +410,7 @@ test("saving a roadmap removes feedback for programs deleted from its document",
 
   const savedDocument = {
     ...document,
+    laneCounts: { consulting: 2, business: 4, voucher: 2, ip: 2, certification: 1 },
     programs: document.programs
       .filter((program) => program.id === "program-2")
       .map((program) => ({ ...program, startMonth: 1, endMonth: 1, amountKrw: null })),

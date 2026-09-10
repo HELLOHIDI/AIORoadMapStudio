@@ -5,6 +5,8 @@ import { shiftProgramByMonths } from "../src/roadmap-policy.js";
 
 const sheetRect = { left: 0, right: 297 / 25.4 * 96, top: 0, bottom: 210 / 25.4 * 96 };
 const validDocument = {
+  tier: "premium",
+  laneCounts: { consulting: 2, business: 4, voucher: 2, ip: 2, certification: 1 },
   clientName: "클라이언트명",
   programs: [{ id: "one", category: "consulting", title: "지원사업", startMonth: 1, endMonth: 2, amountKrw: null, sequence: 0 }],
 };
@@ -45,7 +47,7 @@ test("passes a valid document in a Chromium browser", async () => {
   assert.deepEqual(result.errors, []);
 
   const standard = await runPdfPreflight({
-    roadmapDocument: { ...validDocument, tier: "standard" },
+    roadmapDocument: { tier: "standard", clientName: validDocument.clientName, programs: validDocument.programs },
     root: fakeRoot(),
     navigatorLike: supportedNavigator,
   });
@@ -58,7 +60,7 @@ test("passes a valid document in a Chromium browser", async () => {
 });
 
 test("accepts a valid document after a one-month policy shift", async () => {
-  const shifted = shiftProgramByMonths({ programs: validDocument.programs, programId: "one", deltaMonths: 1 });
+  const shifted = shiftProgramByMonths({ document: validDocument, programId: "one", deltaMonths: 1 });
   const result = await runPdfPreflight({ roadmapDocument: { ...validDocument, programs: shifted.programs }, root: fakeRoot(), navigatorLike: supportedNavigator });
   assert.equal(shifted.ok, true);
   assert.equal(result.ok, true);

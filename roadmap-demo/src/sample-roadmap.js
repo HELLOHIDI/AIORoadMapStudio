@@ -1,4 +1,6 @@
 export const sampleRoadmap = {
+  tier: "premium",
+  laneCounts: { consulting: 2, business: 4, voucher: 2, ip: 2, certification: 1 },
   clientName: "클라이언트명",
   programs: [
     ["c1", "consulting", "상시 지역 및 업종 기반 지원사업 안내", 1, 6, null],

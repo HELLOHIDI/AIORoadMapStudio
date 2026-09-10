@@ -44,8 +44,8 @@ function shapeXmlByName(slideXml, name) {
 }
 
 const standardRoadmap = {
-  ...sampleRoadmap,
   tier: "standard",
+  clientName: sampleRoadmap.clientName,
   programs: sampleRoadmap.programs.filter(({ category }) => category !== "certification"),
 };
 
@@ -67,10 +67,12 @@ function totalLaneCount(layout) {
 
 test("PPTX bar geometry follows a one-month policy shift", async () => {
   const roadmap = {
+    tier: "premium",
+    laneCounts: { consulting: 2, business: 4, voucher: 2, ip: 2, certification: 1 },
     clientName: "shift",
     programs: [{ id: "shift", category: "consulting", title: "shift", startMonth: 3, endMonth: 4, amountKrw: null, sequence: 0, laneIndex: 0 }],
   };
-  const shifted = shiftProgramByMonths({ programs: roadmap.programs, programId: "shift", deltaMonths: 1 });
+  const shifted = shiftProgramByMonths({ document: roadmap, programId: "shift", deltaMonths: 1 });
   const before = await buildPackage(roadmap);
   const after = await buildPackage({ ...roadmap, programs: shifted.programs });
   const beforeBar = shapeOffset(shapeXmlByName(before.slideXml, "anp.roadmap.program.shift.bar"));
@@ -97,6 +99,8 @@ test("브라우저 PPTX 번들은 취약한 image-size 파서를 포함하지 �
 
 test("브라우저에서 로드된 승인 글꼴로 프로그램 제목 폭을 측정한다", async () => {
   const layout = buildRoadmapLayout({
+    tier: "premium",
+    laneCounts: { consulting: 2, business: 4, voucher: 2, ip: 2, certification: 1 },
     clientName: "폭 측정",
     programs: [{
       id: "width-program",
@@ -126,6 +130,8 @@ test("브라우저에서 로드된 승인 글꼴로 프로그램 제목 폭을 �
 
 test("PPTX uses the roadmap-only business or marketing prefix", async () => {
   const { layout, slideXml } = await buildPackage({
+    tier: "premium",
+    laneCounts: { consulting: 2, business: 4, voucher: 2, ip: 2, certification: 1 },
     clientName: "표시 구분",
     programs: [
       { id: "business-label", category: "business", title: "사업화 지원", startMonth: 1, endMonth: 1, amountKrw: null, sequence: 0 },
@@ -256,6 +262,30 @@ test("Premium and Standard PPTX outputs use tier-resolved section and lane geome
   );
 });
 
+test("PPTX geometry follows representative transferred Premium lane counts", async () => {
+  const custom = await buildPackage({
+    tier: "premium",
+    clientName: "custom lanes",
+    laneCounts: { consulting: 2, business: 4, voucher: 2, ip: 1, certification: 2 },
+    programs: [],
+  });
+  const defaults = await buildPackage({ ...sampleRoadmap, programs: [] });
+  const oneLane = Math.round(PPTX_LAYOUT.laneHeightMm * 36000);
+
+  assert.equal(totalLaneCount(custom.layout), 11);
+  assert.equal(shapeExtent(shapeXmlByName(custom.slideXml, "anp.roadmap.shape.category-background.ip")).cy, oneLane);
+  assert.equal(shapeExtent(shapeXmlByName(custom.slideXml, "anp.roadmap.shape.category-background.certification")).cy, oneLane * 2);
+  assert.equal(
+    shapeOffset(shapeXmlByName(defaults.slideXml, "anp.roadmap.shape.category-background.certification")).y
+      - shapeOffset(shapeXmlByName(custom.slideXml, "anp.roadmap.shape.category-background.certification")).y,
+    oneLane,
+  );
+  assert.equal(
+    shapeOffset(shapeXmlByName(custom.slideXml, "anp.roadmap.line.table-bottom")).y,
+    shapeOffset(shapeXmlByName(defaults.slideXml, "anp.roadmap.line.table-bottom")).y,
+  );
+});
+
 test("PPTX customer-facing XML, metadata, and filenames do not expose tier wording", async () => {
   const { slideXml, presentationXml, coreXml } = await buildPackage(standardRoadmap);
   const fileName = sanitizePptxFileName("Neutral Client");
@@ -266,6 +296,8 @@ test("PPTX customer-facing XML, metadata, and filenames do not expose tier wordi
 
 test("프로그램 막대의 좌표와 너비는 월 범위와 결정된 행에서 계산된다", async () => {
   const roadmap = {
+    tier: "premium",
+    laneCounts: { consulting: 2, business: 4, voucher: 2, ip: 2, certification: 1 },
     clientName: "좌표 검증",
     programs: [{
       id: "program-coordinate",
@@ -294,7 +326,7 @@ test("프로그램 막대의 좌표와 너비는 월 범위와 결정된 행에�
   const expectedWidth = Math.round((3 * timelineWidth / 12 - 1.4) * 36000);
   const businessSectionTop = PPTX_LAYOUT.headerHeightMm
     + PPTX_LAYOUT.monthHeightMm
-    + ROADMAP_CATEGORIES[0].maxRows * PPTX_LAYOUT.laneHeightMm;
+    + ROADMAP_CATEGORIES[0].defaultLaneCount * PPTX_LAYOUT.laneHeightMm;
   const expectedY = Math.round((businessSectionTop + 2 * PPTX_LAYOUT.laneHeightMm + PPTX_LAYOUT.laneHeightMm - 0.8 - 2.1) * 36000);
   const expectedAmountX = Math.round((timelineLeft + 2 * timelineWidth / 12 + 0.7
     + PPTX_PROGRAM_TEXT.labelLeftPt * 25.4 / 72
@@ -338,7 +370,7 @@ test("Standard program coordinates keep existing month and lane invariants", asy
   const expectedWidth = Math.round((3 * timelineWidth / 12 - 1.4) * 36000);
   const businessSectionTop = PPTX_LAYOUT.headerHeightMm
     + PPTX_LAYOUT.monthHeightMm
-    + ROADMAP_CATEGORIES[0].maxRows * PPTX_LAYOUT.laneHeightMm;
+    + ROADMAP_CATEGORIES[0].defaultLaneCount * PPTX_LAYOUT.laneHeightMm;
   const expectedY = Math.round((businessSectionTop + 2 * PPTX_LAYOUT.laneHeightMm + PPTX_LAYOUT.laneHeightMm - 0.8 - 2.1) * 36000);
   const expectedAmountX = Math.round((timelineLeft + 2 * timelineWidth / 12 + 0.7
     + PPTX_PROGRAM_TEXT.labelLeftPt * 25.4 / 72

@@ -753,6 +753,53 @@ button {
   font-weight: 700;
 }
 
+.lane-transfer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid #dfe3ea;
+  border-radius: 8px;
+  background: #f8f9fb;
+}
+
+.lane-transfer h3,
+.lane-transfer p {
+  margin: 0;
+}
+
+.lane-transfer p,
+.lane-transfer__preview,
+.lane-transfer__reasons {
+  color: #4c5565;
+  font-size: 12px;
+}
+
+.lane-transfer label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.lane-transfer select {
+  min-width: 170px;
+}
+
+.lane-transfer__preview {
+  flex-basis: 100%;
+}
+
+.lane-transfer__reasons {
+  flex-basis: 100%;
+}
+
+.lane-transfer__reasons ul {
+  margin: 6px 0 0;
+}
+
 .draft-summary {
   display: flex;
   flex-wrap: wrap;

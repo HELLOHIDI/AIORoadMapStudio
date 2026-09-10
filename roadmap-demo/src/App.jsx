@@ -6,7 +6,7 @@ import { CATALOG_CATEGORIES, catalogPayload, copyCatalogProgram, EMPTY_CATALOG_P
 import { runPdfPreflight } from "./pdf-preflight.js";
 import { detectPdfRuntime, PDF_RUNTIME } from "./pdf-runtime.js";
 import { selectRoadmapPrograms } from "./roadmap-auto-selection.js";
-import { allowedCategoriesForTier, buildRoadmapLayout, moveProgramToTargetLane, ROADMAP_CATEGORIES, roadmapProgramLabel, resolveRoadmapTier, shiftProgramByMonths } from "./roadmap-policy.js";
+import { allowedCategoriesForTier, buildRoadmapLayout, MAX_LANES_PER_CATEGORY, moveProgramToTargetLane, PREMIUM_DEFAULT_LANE_COUNTS, ROADMAP_CATEGORIES, roadmapProgramLabel, resolveRoadmapTier, shiftProgramByMonths, STANDARD_DEFAULT_LANE_COUNTS, transferRoadmapLane } from "./roadmap-policy.js";
 
 const months = Array.from({ length: 12 }, (_, index) => `${index + 1}월`);
 const categoryLabel = Object.fromEntries(ROADMAP_CATEGORIES.map(({ key, label }) => [key, label]));
@@ -18,6 +18,13 @@ const CATALOG_MAX_OFFSET = 100_000;
 // ponytail: bound pagination to the Worker offset contract; raise with the API limit if the catalog outgrows it.
 const CATALOG_PAGE_CAP = Math.floor(CATALOG_MAX_OFFSET / CATALOG_PAGE_LIMIT) + 1;
 const tierLabel = Object.freeze({ premium: "Premium", standard: "Standard" });
+const laneTransferReason = Object.freeze({
+  E_LANE_TRANSFER_SOURCE_MINIMUM: "최소 1줄은 유지해야 합니다.",
+  E_LANE_TRANSFER_SOURCE_OCCUPIED: "사업이 배치되어 있습니다. 먼저 사업을 다른 줄로 옮겨 주세요.",
+  E_LANE_TRANSFER_SOURCE_UNRESOLVED: "현재 사업 배치를 안전하게 확인할 수 없습니다.",
+  E_LANE_TRANSFER_TARGET_MAXIMUM: "카테고리별 최대 4줄에 도달했습니다.",
+  E_LANE_TRANSFER_SAME_CATEGORY: "출발 카테고리와 다른 카테고리를 선택해 주세요.",
+});
 const feedbackStatusLabel = Object.freeze({
   needs_changes: "수정 필요",
   completed: "수정 완료",
@@ -42,6 +49,12 @@ function writeRecommendationDetailsOpen(value) {
   } catch {
     // Storage can be disabled; the in-memory preference still applies.
   }
+}
+
+function hydrateSavedRoadmap(document) {
+  return document?.tier === "premium" && !Object.hasOwn(document, "laneCounts")
+    ? { ...document, laneCounts: { ...PREMIUM_DEFAULT_LANE_COUNTS } }
+    : document;
 }
 
 async function readApiJson(response) {
@@ -797,6 +810,8 @@ export function App() {
   const dragProgramId = useRef(null);
   const dragStartClientX = useRef(null);
   const [layoutNotice, setLayoutNotice] = useState("");
+  const [laneTransferSource, setLaneTransferSource] = useState("");
+  const [laneTransferTarget, setLaneTransferTarget] = useState("");
   const [feedback, setFeedback] = useState({ status: "idle", items: [], error: "" });
   const [feedbackRefresh, setFeedbackRefresh] = useState(0);
   const [selectedFeedbackProgramId, setSelectedFeedbackProgramId] = useState(null);
@@ -843,6 +858,46 @@ export function App() {
   const placementErrorsByProgram = useMemo(() => new Map(layout.errors
     .filter(({ code, programId }) => code === "E_ROW_CAPACITY" && programId)
     .map((item) => [item.programId, item])), [layout.errors]);
+  const laneTransferSources = useMemo(() => {
+    if (documentTier !== "premium") return { options: [], reasons: [] };
+    const options = [];
+    const reasons = [];
+    for (const section of layout.sections) {
+      const target = layout.sections.find((item) => item.key !== section.key && item.laneCount < MAX_LANES_PER_CATEGORY);
+      for (let laneIndex = 0; laneIndex < section.laneCount; laneIndex += 1) {
+        const result = target
+          ? transferRoadmapLane({ document, sourceCategory: section.key, sourceLaneIndex: laneIndex, targetCategory: target.key })
+          : { ok: false, reason: "E_LANE_TRANSFER_TARGET_MAXIMUM" };
+        const label = `${section.label} ${laneIndex + 1}줄`;
+        if (result.ok) options.push({ value: `${section.key}:${laneIndex}`, label });
+        else reasons.push(`${label}: ${laneTransferReason[result.reason] ?? "이 줄은 이동할 수 없습니다."}`);
+      }
+    }
+    return { options, reasons };
+  }, [document, documentTier, layout.sections]);
+  const selectedLaneTransferSource = laneTransferSources.options.some(({ value }) => value === laneTransferSource)
+    ? laneTransferSource
+    : "";
+  const [laneTransferSourceCategory, laneTransferSourceIndex] = selectedLaneTransferSource.split(":");
+  const laneTransferTargets = documentTier === "premium" && selectedLaneTransferSource
+    ? layout.sections.map((section) => ({
+        key: section.key,
+        label: section.label,
+        disabled: section.key === laneTransferSourceCategory || section.laneCount >= MAX_LANES_PER_CATEGORY,
+        reason: section.key === laneTransferSourceCategory
+          ? "출발 카테고리"
+          : section.laneCount >= MAX_LANES_PER_CATEGORY ? "최대 4줄" : "",
+      }))
+    : [];
+  const selectedLaneTransferTarget = laneTransferTargets.some(({ key, disabled }) => key === laneTransferTarget && !disabled)
+    ? laneTransferTarget
+    : "";
+  const laneTransferPreview = selectedLaneTransferSource && selectedLaneTransferTarget
+    ? Object.fromEntries(Object.entries(document.laneCounts).map(([key, count]) => [
+        key,
+        count + (key === laneTransferSourceCategory ? -1 : key === selectedLaneTransferTarget ? 1 : 0),
+      ]))
+    : null;
 
   useEffect(() => {
     if (screen !== "editor") return undefined;
@@ -1041,6 +1096,7 @@ export function App() {
         programs: catalogSnapshot.programs,
         client: profile,
         tier: pendingTier,
+        laneCounts: pendingTier === "premium" ? PREMIUM_DEFAULT_LANE_COUNTS : STANDARD_DEFAULT_LANE_COUNTS,
         reservedRowsByCategory: { consulting: 1 },
       });
       const programs = [
@@ -1051,6 +1107,7 @@ export function App() {
         tier: pendingTier,
         clientName: "",
         clientProfile: profile,
+        ...(pendingTier === "premium" ? { laneCounts: { ...PREMIUM_DEFAULT_LANE_COUNTS } } : {}),
         programs,
       };
       const summary = {
@@ -1127,13 +1184,14 @@ export function App() {
       const response = await fetch(`/api/roadmaps/${encodeURIComponent(item.id)}`, { headers: { accept: "application/json" } });
       const data = await readApiJson(response);
       if (!response.ok) throw new Error(data.error || "로드맵을 불러오지 못했습니다.");
-      setDocument(data.item.document);
+      const hydratedDocument = hydrateSavedRoadmap(data.item.document);
+      setDocument(hydratedDocument);
       setRoadmapId(data.item.id);
-      setSavedSignature(JSON.stringify(data.item.document));
+      setSavedSignature(JSON.stringify(hydratedDocument));
       setRoadmapMutation({ status: "idle", error: "", message: "" });
       setCatalogForm(null);
       setCatalogFormDirty(false);
-      const nextFirstCategory = allowedCategoriesForTier(resolveRoadmapTier(data.item.document))[0].key;
+      const nextFirstCategory = allowedCategoriesForTier(resolveRoadmapTier(hydratedDocument))[0].key;
       setActiveCategory(nextFirstCategory);
       setCatalogCategory(CATALOG_CATEGORIES[0].key);
       setCatalogOffset(0);
@@ -1258,13 +1316,15 @@ export function App() {
       return;
     }
     const alreadyPlaced = isCatalogProgramAdded(document.programs, program);
-    const categoryCount = document.programs.filter((item) => item.category === program.category).length;
     if (alreadyPlaced) {
       setLayoutNotice("이미 로드맵에 배치된 추천 사업입니다.");
       return;
     }
-    if (categoryCount >= category.maxRows) {
-      setLayoutNotice(`${category.label} 구분은 최대 ${category.maxRows}개까지 배치할 수 있습니다. 기존 사업을 제거한 뒤 추가해 주세요.`);
+    const nextSequence = document.programs.reduce((max, item) => Math.max(max, item.sequence), -1) + 1;
+    const candidate = copyCatalogProgram(program, nextSequence);
+    const candidateLayout = buildRoadmapLayout({ ...document, programs: [...document.programs, candidate] });
+    if (candidateLayout.errors.some(({ programId }) => programId === candidate.id)) {
+      setLayoutNotice(`${category.label} 구분에는 이 사업을 배치할 빈 줄이 없습니다.`);
       return;
     }
     setDocument((current) => {
@@ -1279,8 +1339,30 @@ export function App() {
     programs: current.programs.filter((program) => program.id !== id),
   }));
 
+  const applyLaneTransfer = (event) => {
+    event.preventDefault();
+    if (!selectedLaneTransferSource || !selectedLaneTransferTarget) {
+      setLayoutNotice("이동할 빈 줄과 받을 카테고리를 선택해 주세요.");
+      return;
+    }
+    setDocument((current) => {
+      const result = transferRoadmapLane({
+        document: current,
+        sourceCategory: laneTransferSourceCategory,
+        sourceLaneIndex: Number(laneTransferSourceIndex),
+        targetCategory: selectedLaneTransferTarget,
+      });
+      if (!result.ok) {
+        setLayoutNotice(`줄 이동 실패: ${laneTransferReason[result.reason] ?? result.reason}`);
+        return current;
+      }
+      setLayoutNotice(`${categoryLabel[laneTransferSourceCategory]} 빈 줄을 ${categoryLabel[selectedLaneTransferTarget]}으로 이동했습니다.`);
+      return result.document;
+    });
+  };
+
   const laneDropResult = (programId, targetLaneIndex) => {
-    return moveProgramToTargetLane({ programs: document.programs, programId, targetLaneIndex, tier: documentTier });
+    return moveProgramToTargetLane({ document, programId, targetLaneIndex });
   };
 
   const moveProgram = (programId, targetLaneIndex) => {
@@ -1289,17 +1371,17 @@ export function App() {
       setLayoutNotice("해당 행에는 배치할 수 없습니다.");
       return;
     }
-    setDocument((current) => ({ ...current, programs: result.programs }));
+    setDocument(result.document);
     setLayoutNotice(result.outcome === "swapped-pair" ? "두 사업과 행을 교환했습니다." : result.outcome === "swapped" ? "겹치는 사업의 행을 교환했습니다." : "사업의 행을 이동했습니다.");
   };
 
   const shiftProgram = (programId, deltaMonths) => {
-    const result = shiftProgramByMonths({ programs: document.programs, programId, deltaMonths, tier: documentTier });
+    const result = shiftProgramByMonths({ document, programId, deltaMonths });
     if (!result.ok) {
       setLayoutNotice("That month shift is not available.");
       return;
     }
-    setDocument((current) => ({ ...current, programs: result.programs }));
+    setDocument(result.document);
     setLayoutNotice("Program period shifted by one month.");
   };
 
@@ -1677,10 +1759,6 @@ export function App() {
   const hasCatalogFilters = Boolean(catalogCategory !== firstCatalogCategory || catalogQuery || catalogPeriodChanged || catalogIndustries.length || catalogRegions.length || catalogBusinessSubcategories.length);
   const activePrograms = document.programs.filter((program) => program.category === activeCategory && allowedCategoryKeys.has(program.category));
   const draftRecommendations = draftGeneration.summary?.recommendations ?? [];
-  const categoryPlacementCounts = new Map(allowedCategories.map(({ key }) => [
-    key,
-    document.programs.filter((program) => program.category === key).length,
-  ]));
   const draggingProgram = document.programs.find((program) => program.id === draggingProgramId);
 
   return (
@@ -1853,7 +1931,10 @@ export function App() {
                   {draftRecommendations.map((program, index) => {
                     const category = allowedCategories.find(({ key }) => key === program.category);
                     const placed = isCatalogProgramAdded(document.programs, program);
-                    const categoryFull = !category || (categoryPlacementCounts.get(program.category) ?? 0) >= category.maxRows;
+                    const candidateSequence = document.programs.reduce((max, item) => Math.max(max, item.sequence), -1) + 1;
+                    const candidate = copyCatalogProgram(program, candidateSequence);
+                    const categoryFull = !category || buildRoadmapLayout({ ...document, programs: [...document.programs, candidate] })
+                      .errors.some(({ programId }) => programId === candidate.id);
                     return (
                       <article className="auto-match-recommendation" key={program.id}>
                         <span className="auto-match-recommendation__rank">{index + 1}</span>
@@ -1881,6 +1962,45 @@ export function App() {
               </label>
               <button type="button" onClick={addProgram}>사업 직접 추가</button>
             </div>
+            {documentTier === "premium" ? (
+              <form className="lane-transfer no-print" aria-labelledby="lane-transfer-heading" onSubmit={applyLaneTransfer}>
+                <div>
+                  <h3 id="lane-transfer-heading">빈 줄 이동</h3>
+                  <p>사업이 없는 줄 하나를 다른 카테고리로 옮깁니다.</p>
+                </div>
+                <label>
+                  <span>이동할 빈 줄</span>
+                  <select value={selectedLaneTransferSource} onChange={(event) => {
+                    setLaneTransferSource(event.target.value);
+                    setLaneTransferTarget("");
+                  }}>
+                    <option value="">선택</option>
+                    {laneTransferSources.options.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>받을 카테고리</span>
+                  <select value={selectedLaneTransferTarget} disabled={!selectedLaneTransferSource} onChange={(event) => setLaneTransferTarget(event.target.value)}>
+                    <option value="">선택</option>
+                    {laneTransferTargets.map(({ key, label, disabled, reason }) => (
+                      <option key={key} value={key} disabled={disabled}>{label}{reason ? ` — ${reason}` : ""}</option>
+                    ))}
+                  </select>
+                </label>
+                <output className="lane-transfer__preview" aria-live="polite">
+                  {laneTransferPreview
+                    ? ROADMAP_CATEGORIES.map(({ key, label }) => `${label} ${laneTransferPreview[key]}줄`).join(" · ")
+                    : "출발 줄과 받을 카테고리를 선택하면 변경 후 줄 수가 표시됩니다."}
+                </output>
+                <button type="submit" disabled={!laneTransferPreview}>줄 이동 적용</button>
+                {laneTransferSources.reasons.length ? (
+                  <details className="lane-transfer__reasons">
+                    <summary>이동할 수 없는 줄 사유</summary>
+                    <ul>{laneTransferSources.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+                  </details>
+                ) : null}
+              </form>
+            ) : null}
             <nav className="category-tabs" aria-label="사업 구분">
               {allowedCategories.map(({ key, label }) => (
                 <button type="button" key={key} aria-pressed={activeCategory === key} onClick={() => setActiveCategory(key)}>{label}</button>

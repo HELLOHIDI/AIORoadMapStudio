@@ -119,13 +119,14 @@ test("resolves authoring categories from the immutable roadmap tier", () => {
   assert.ok(app.includes("setCatalogEndMonth(String(catalogSnapshot.months.endMonth))"));
   assert.ok(app.includes('setMode("roadmap")'));
   assert.ok(app.includes('setScreen("editor")'));
-  assert.ok(app.includes("const nextFirstCategory = allowedCategoriesForTier(resolveRoadmapTier(data.item.document))[0].key"));
+  assert.ok(app.includes("const nextFirstCategory = allowedCategoriesForTier(resolveRoadmapTier(hydratedDocument))[0].key"));
+  assert.ok(app.includes("setSavedSignature(JSON.stringify(hydratedDocument))"));
   assert.ok(app.includes("allowedCategories.map(({ key, label })"));
   assert.ok(app.includes("catalogCategories.map(({ key, label })"));
   assert.ok(app.includes("categories={editorCategories}"));
   assert.ok(app.includes("params.set(\"category\", catalogCategoryKeys.has(catalogCategory) ? catalogCategory : firstCatalogCategory)"));
   assert.ok(app.includes("if (!allowedCategoryKeys.has(program.category))"));
-  assert.ok(app.includes("tier: documentTier"));
+  assert.ok(app.includes("moveProgramToTargetLane({ document, programId, targetLaneIndex })"));
 });
 
 test("keeps tier wording out of customer-facing export surfaces", () => {
@@ -271,6 +272,22 @@ test("keeps category tabs and direct roadmap moves outside print", () => {
   assert.match(styles, /\.roadmap-lane\[data-drop-state="valid"\][\s\S]*outline:\s*0\.6pt dashed/s);
   assert.doesNotMatch(styles, /standard[\s\S]*\.roadmap-lane[\s\S]*height:/i);
   assert.match(styles, /@media print\s*\{[\s\S]*\.roadmap-lane\[data-drop-state\]\s*\{[^}]*outline:\s*0;/s);
+});
+
+test("keeps Premium lane transfer accessible, keyboard-native, and outside print", () => {
+  assert.ok(app.includes('documentTier === "premium"'));
+  assert.ok(app.includes('className="lane-transfer no-print"'));
+  assert.ok(app.includes('aria-labelledby="lane-transfer-heading"'));
+  assert.ok(app.includes('<select value={selectedLaneTransferSource}'));
+  assert.ok(app.includes('<select value={selectedLaneTransferTarget}'));
+  assert.ok(app.includes('<button type="submit" disabled={!laneTransferPreview}>줄 이동 적용</button>'));
+  assert.ok(app.includes('className="lane-transfer__preview" aria-live="polite"'));
+  assert.ok(app.includes('이동할 수 없는 줄 사유'));
+  assert.ok(app.includes('줄 이동 실패:'));
+  assert.ok(app.includes('transferRoadmapLane({'));
+  assert.match(styles, /\.lane-transfer\s*\{/);
+  assert.match(styles, /@media print\s*\{[\s\S]*\.no-print\s*\{[^}]*display:\s*none !important;/s);
+  assert.equal(pptxExport.includes("빈 줄 이동"), false);
 });
 
 test("keeps marketing and placement guidance inside roadmap authoring", () => {

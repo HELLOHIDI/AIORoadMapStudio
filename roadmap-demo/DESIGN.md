@@ -48,6 +48,7 @@
   - Maintain reusable support-program information.
   - Select relevant programs for a client.
   - Adjust copied amounts and periods for that client without changing the shared master.
+  - Transfer one empty Premium roadmap lane between categories while keeping 11 total lanes and 1-4 lanes per category.
   - Validate and print a one-page roadmap.
   - Request a specific roadmap change, mark the change complete, and confirm whether it is resolved.
 - Key contexts of use: desktop browser, data-dense authoring, repeated use across multiple client roadmaps, shared catalog visible across devices.
@@ -156,6 +157,7 @@
 - Error: preserve the last usable catalog data when possible, explain the failed operation, and offer a focused retry.
 - Success: confirm the named program was added and offer `로드맵 편집으로 이동`.
 - Disabled: state why an action is unavailable; do not use disabled styling as the only explanation.
+- Lane transfer: list only removable empty source lanes, name why other lanes or targets are unavailable, preview the resulting category counts, and apply without confirmation. Keep the native control Premium-only and out of print/export.
 - PPTX export: disable only for canonical document/layout errors or while generation is running; show a named success message or an explicit generation error inline. Chromium/PDF-runtime-only failures must not disable PPTX export.
 - Offline/slow network: do not claim a shared write succeeded until the server confirms it; the roadmap remains locally usable during catalog failure.
 - Feedback failure: keep the active roadmap and last usable feedback timeline intact, show a focused retry, and never imply a state transition succeeded before server confirmation.

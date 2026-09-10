@@ -1,4 +1,4 @@
-import { allowedCategoriesForTier } from "./roadmap-policy.js";
+import { allowedCategoriesForTier, buildRoadmapLayout, resolveRoadmapLaneCounts } from "./roadmap-policy.js";
 import { ADMINISTRATIVE_REGION_GROUPS } from "../catalog-tag-policy.js";
 
 // This is the single draft-selection policy used by the new-roadmap UI and its tests.
@@ -147,8 +147,19 @@ function rank(a, b) {
     || String(a.program.title ?? "").localeCompare(String(b.program.title ?? ""));
 }
 
-export function selectRoadmapPrograms({ programs = [], client = {}, tier = "premium", reservedRowsByCategory = {} } = {}) {
+export function selectRoadmapPrograms({ programs = [], client = {}, tier = "premium", laneCounts, reservedRowsByCategory = {} } = {}) {
   const categories = allowedCategoriesForTier(tier);
+  const categoryKeysList = categories.map(({ key }) => key);
+  const canonicalCounts = resolveRoadmapLaneCounts(tier === "premium" ? { tier, laneCounts } : { tier }, { requireExplicit: true });
+  const laneCountKeys = laneCounts && typeof laneCounts === "object" && !Array.isArray(laneCounts) ? Object.keys(laneCounts) : [];
+  const invalidLaneCounts = canonicalCounts.errors.length
+    || laneCountKeys.length !== categoryKeysList.length
+    || categoryKeysList.some((key) => !Object.hasOwn(laneCounts, key)
+      || !Number.isSafeInteger(laneCounts[key]) || laneCounts[key] < 1 || laneCounts[key] > 4)
+    || (tier === "standard" && categoryKeysList.some((key) => laneCounts[key] !== canonicalCounts.laneCounts[key]));
+  if (invalidLaneCounts) {
+    throw Object.assign(new TypeError("Invalid laneCounts for roadmap selection."), { name: "RoadmapLaneCountsTypeError" });
+  }
   const categoryKeys = new Set(categories.map(({ key }) => key));
   const eligible = programs.flatMap((program) => {
     const fit = tenureFit(program, client);
@@ -197,10 +208,24 @@ export function selectRoadmapPrograms({ programs = [], client = {}, tier = "prem
       ? Math.max(0, reservedRowsByCategory[category.key])
       : 0;
     const placementPool = category.key === "consulting" ? categoryEligible : categoryRecommendations;
-    const placed = placementPool.slice(0, Math.max(0, category.maxRows - reservedRows)).map(({ program }, index) => ({
-      ...program,
-      sequence: selected.length + index,
+    const placed = [];
+    const reservedPrograms = Array.from({ length: Math.min(reservedRows, laneCounts[category.key]) }, (_, index) => ({
+      id: `reserved-${category.key}-${index}`,
+      category: category.key,
+      title: "reserved",
+      startMonth: 1,
+      endMonth: 12,
+      amountKrw: null,
+      sequence: index,
+      laneIndex: index,
     }));
+    for (const entry of placementPool) {
+      const candidate = { ...entry.program, sequence: selected.length + placed.length };
+      const candidatePrograms = [...reservedPrograms, ...selected, ...placed, candidate];
+      const layout = buildRoadmapLayout({ tier, clientName: "selection", ...(tier === "premium" ? { laneCounts } : {}), programs: candidatePrograms });
+      if (layout.errors.some(({ programId }) => programId === candidate.id)) continue;
+      placed.push(candidate);
+    }
     selected.push(...placed);
     return {
       key: category.key,
